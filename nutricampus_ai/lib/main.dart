@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:nutricampus_ai/login_screen.dart';
+import 'package:nutricampus_ai/register_screen.dart';
+
 void main() {
   runApp(const MyApp());
 }
@@ -24,6 +26,7 @@ class MyApp extends StatelessWidget {
         initialRoute: '/login',
         routes: {
           '/login': (context) => const LoginScreen(),
+          '/register': (context) => const RegisterScreen(),
           // Aquí puedes agregar más rutas para otras pantallas de tu aplicación
         },
       );

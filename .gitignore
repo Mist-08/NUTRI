@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+
+# Flutter
+nutricampus_ai/build/
+nutricampus_ai/.dart_tool/
+nutricampus_ai/.flutter-plugins
+nutricampus_ai/.flutter-plugins-dependencies
+nutricampus_ai/*.iml
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
