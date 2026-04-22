@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'api_service.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -33,21 +34,31 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     setState(() => _isLoading = true);
 
-    // TODO: Conectar con FastAPI → POST /auth/register
-    // Body:
-    // {
-    //   "name": _nameController.text,
-    //   "email": _emailController.text,
-    //   "password": _passwordController.text,  // el backend lo hashea con bcrypt
-    // }
-
-    await Future.delayed(const Duration(seconds: 2)); // Simulación
+    final result = await ApiService.register(
+      nombre: _nameController.text.trim(),
+      correo: _emailController.text.trim(),
+      password: _passwordController.text,
+    );
 
     setState(() => _isLoading = false);
 
-    if (mounted) {
-      // Redirige al perfil nutricional tras registro exitoso
-      Navigator.pushReplacementNamed(context, 'nutritional_profile');
+    if (!mounted) return;
+
+    if (result['success']) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('¡Cuenta creada exitosamente!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      Navigator.pushReplacementNamed(context, '/login');
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['error']),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -68,8 +79,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-
-                // Header
                 Image.asset('assets/nutri-logo.png', height: 100),
                 const SizedBox(height: 10),
                 const Text(
@@ -87,7 +96,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 35),
 
-                // Nombre completo
                 TextFormField(
                   controller: _nameController,
                   textCapitalization: TextCapitalization.words,
@@ -102,7 +110,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 20),
 
-                // Correo
                 TextFormField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
@@ -117,7 +124,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 20),
 
-                // Contraseña
                 TextFormField(
                   controller: _passwordController,
                   obscureText: _obscurePassword,
@@ -139,7 +145,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 20),
 
-                // Confirmar contraseña
                 TextFormField(
                   controller: _confirmPasswordController,
                   obscureText: _obscureConfirm,
@@ -162,7 +167,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 30),
 
-                // Botón Registrarse
                 SizedBox(
                   width: double.infinity,
                   height: 50,

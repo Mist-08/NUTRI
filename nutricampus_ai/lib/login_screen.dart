@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'api_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -8,66 +9,112 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  // GlobalKey para validar el formulario
   final _formKey = GlobalKey<FormState>();
-  
-  // Controladores para obtener el texto de los inputs
+
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+
+  bool _obscurePassword = true;
+  bool _isLoading = false;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  void _handleLogin() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+
+    final result = await ApiService.login(
+      correo: _emailController.text.trim(),
+      password: _passwordController.text,
+    );
+
+    setState(() => _isLoading = false);
+
+    if (!mounted) return;
+
+    if (result['success']) {
+      Navigator.pushReplacementNamed(context, '/home');
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['error']),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Center(
-        child: SingleChildScrollView( // Evita errores de overflow si aparece el teclado
+        child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 30),
           child: Form(
             key: _formKey,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Logo o Icono principal
                 Image.asset('assets/nutri-logo.png', height: 150),
                 const SizedBox(height: 20),
                 const Text(
-                  "NutriCampus AI",
-                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.green),
+                  'NutriCampus AI',
+                  style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green),
                 ),
                 const SizedBox(height: 40),
 
-                // Campo de Correo
                 TextFormField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
                   decoration: InputDecoration(
                     labelText: 'Correo Institucional',
                     prefixIcon: const Icon(Icons.email_outlined),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12)),
                   ),
-                  validator: (value) {
-                    if (value == null || !value.contains('@')) return 'Ingresa un correo válido';
+                  validator: (v) {
+                    if (v == null || !v.contains('@')) {
+                      return 'Ingresa un correo válido';
+                    }
                     return null;
                   },
                 ),
                 const SizedBox(height: 20),
 
-                // Campo de Contraseña
                 TextFormField(
                   controller: _passwordController,
-                  obscureText: true, // Oculta los caracteres
+                  obscureText: _obscurePassword,
                   decoration: InputDecoration(
                     labelText: 'Contraseña',
                     prefixIcon: const Icon(Icons.lock_outline),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    suffixIcon: IconButton(
+                      icon: Icon(_obscurePassword
+                          ? Icons.visibility_off
+                          : Icons.visibility),
+                      onPressed: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
+                    ),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12)),
                   ),
-                  validator: (value) {
-                    if (value == null || value.length < 6) return 'Mínimo 6 caracteres';
+                  validator: (v) {
+                    if (v == null || v.isEmpty) {
+                      return 'Ingresa tu contraseña';
+                    }
                     return null;
                   },
                 ),
                 const SizedBox(height: 30),
 
-                // Botón de Entrar
                 SizedBox(
                   width: double.infinity,
                   height: 50,
@@ -75,22 +122,28 @@ class _LoginScreenState extends State<LoginScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
                       foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
                     ),
-                    onPressed: () {
-                      if (_formKey.currentState!.validate()) {
-                        // Aquí conectarás con tu lógica de Python/PostgreSQL
-                        print("Intentando conectar con: ${_emailController.text}");
-                      }
-                    },
-                    child: const Text("Iniciar Sesión", style: TextStyle(fontSize: 18)),
+                    onPressed: _isLoading ? null : _handleLogin,
+                    child: _isLoading
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2.5,
+                            ),
+                          )
+                        : const Text('Iniciar Sesión',
+                            style: TextStyle(fontSize: 18)),
                   ),
                 ),
-
                 const SizedBox(height: 20),
+
                 TextButton(
                   onPressed: () => Navigator.pushNamed(context, '/register'),
-                  child: const Text("¿No tienes cuenta? Regístrate aquí"),
+                  child: const Text('¿No tienes cuenta? Regístrate aquí'),
                 ),
               ],
             ),
