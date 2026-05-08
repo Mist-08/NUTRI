@@ -31,7 +31,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   void _handleRegister() async {
     if (!_formKey.currentState!.validate()) return;
-
     setState(() => _isLoading = true);
 
     final result = await ApiService.register(
@@ -40,24 +39,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
       password: _passwordController.text,
     );
 
-    setState(() => _isLoading = false);
-
-    if (!mounted) return;
-
     if (result['success']) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('¡Cuenta creada exitosamente!'),
-          backgroundColor: Colors.green,
-        ),
+      final loginResult = await ApiService.login(
+        correo: _emailController.text.trim(),
+        password: _passwordController.text,
       );
-      Navigator.pushReplacementNamed(context, '/login');
+
+      setState(() => _isLoading = false);
+      if (!mounted) return;
+
+      if (loginResult['success']) {
+        Navigator.pushReplacementNamed(context, '/perfil');
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(loginResult['error']), backgroundColor: Colors.red),
+        );
+      }
     } else {
+      setState(() => _isLoading = false);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result['error']),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text(result['error']), backgroundColor: Colors.red),
       );
     }
   }

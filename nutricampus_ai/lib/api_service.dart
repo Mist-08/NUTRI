@@ -1,23 +1,47 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
   static const String _baseUrl = 'http://localhost:8000';
+  static String? _cachedToken;
 
-  static String? _token;
-  static String? get token => _token;
+  // Llama esto en main.dart antes de runApp para cargar el token guardado
+  static Future<void> init() async {
+    final prefs = await SharedPreferences.getInstance();
+    _cachedToken = prefs.getString('token');
+  }
 
-  static void setToken(String token) => _token = token;
-  static void clearToken() => _token = null;
+  static Future<void> setToken(String token) async {
+    _cachedToken = token;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('token', token);
+  }
+
+  static Future<String?> getToken() async {
+    if (_cachedToken != null) return _cachedToken;
+    final prefs = await SharedPreferences.getInstance();
+    _cachedToken = prefs.getString('token');
+    return _cachedToken;
+  }
+
+  static Future<void> clearToken() async {
+    _cachedToken = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('token');
+  }
 
   static Map<String, String> get _headers => {
     'Content-Type': 'application/json',
   };
 
-  static Map<String, String> get _authHeaders => {
-    'Content-Type': 'application/json',
-    'Authorization': 'Bearer $_token',
-  };
+  static Future<Map<String, String>> get _authHeaders async {
+    final token = await getToken();
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $token',
+    };
+  }
 
   static Future<Map<String, dynamic>> register({
     required String nombre,
@@ -34,9 +58,7 @@ class ApiService {
           'password': password,
         }),
       );
-
       final data = jsonDecode(response.body);
-
       if (response.statusCode == 201) {
         return {'success': true, 'data': data};
       } else {
@@ -60,11 +82,9 @@ class ApiService {
           'password': password,
         }),
       );
-
       final data = jsonDecode(response.body);
-
       if (response.statusCode == 200) {
-        setToken(data['access_token']);
+        await setToken(data['access_token']);
         return {'success': true, 'data': data};
       } else {
         return {'success': false, 'error': data['detail'] ?? 'Correo o contraseña incorrectos'};
@@ -87,9 +107,10 @@ class ApiService {
     String? condicionesMedicas,
   }) async {
     try {
+      final headers = await _authHeaders;
       final response = await http.post(
         Uri.parse('$_baseUrl/usuarios/perfil'),
-        headers: _authHeaders,
+        headers: headers,
         body: jsonEncode({
           'edad': edad,
           'peso': peso,
@@ -103,9 +124,7 @@ class ApiService {
           'condiciones_medicas': condicionesMedicas,
         }),
       );
-
       final data = jsonDecode(response.body);
-
       if (response.statusCode == 201) {
         return {'success': true, 'data': data};
       } else {
@@ -118,13 +137,12 @@ class ApiService {
 
   static Future<Map<String, dynamic>> getMaterias() async {
     try {
+      final headers = await _authHeaders;
       final response = await http.get(
         Uri.parse('$_baseUrl/materias'),
-        headers: _authHeaders,
+        headers: headers,
       );
-
       final data = jsonDecode(response.body);
-
       if (response.statusCode == 200) {
         return {'success': true, 'data': data};
       } else {
@@ -149,9 +167,10 @@ class ApiService {
     required String horaFin,
   }) async {
     try {
+      final headers = await _authHeaders;
       final response = await http.post(
         Uri.parse('$_baseUrl/materias'),
-        headers: _authHeaders,
+        headers: headers,
         body: jsonEncode({
           'nombre': nombre,
           'aula': aula,
@@ -166,9 +185,7 @@ class ApiService {
           'hora_fin': horaFin,
         }),
       );
-
       final data = jsonDecode(response.body);
-
       if (response.statusCode == 201) {
         return {'success': true, 'data': data};
       } else {
@@ -181,13 +198,12 @@ class ApiService {
 
   static Future<Map<String, dynamic>> getEventos() async {
     try {
+      final headers = await _authHeaders;
       final response = await http.get(
         Uri.parse('$_baseUrl/eventos'),
-        headers: _authHeaders,
+        headers: headers,
       );
-
       final data = jsonDecode(response.body);
-
       if (response.statusCode == 200) {
         return {'success': true, 'data': data};
       } else {
@@ -206,9 +222,10 @@ class ApiService {
     String? descripcion,
   }) async {
     try {
+      final headers = await _authHeaders;
       final response = await http.post(
         Uri.parse('$_baseUrl/eventos'),
-        headers: _authHeaders,
+        headers: headers,
         body: jsonEncode({
           'tipo_evento': tipoEvento,
           'fecha': fecha,
@@ -217,9 +234,7 @@ class ApiService {
           'descripcion': descripcion,
         }),
       );
-
       final data = jsonDecode(response.body);
-
       if (response.statusCode == 201) {
         return {'success': true, 'data': data};
       } else {

@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
+import 'api_service.dart';
 import 'login_screen.dart';
 import 'register_screen.dart';
 import 'home_screen.dart';
+import 'nutritional_profile_screen.dart';
 import 'materias_screen.dart';
 import 'horario_screen.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await ApiService.init(); // Carga el token guardado antes de arrancar
   runApp(const MyApp());
 }
 
@@ -26,10 +30,12 @@ class MyApp extends StatelessWidget {
       ),
       initialRoute: '/login',
       routes: {
-        '/login':    (context) => const LoginScreen(),
-        '/register': (context) => const RegisterScreen(),
-        '/home':     (context) => const HomeScreen(),
-        '/materias': (context) => const MateriasScreen(),
+        '/login':        (context) => const LoginScreen(),
+        '/register':     (context) => const RegisterScreen(),
+        '/home':         (context) => const HomeScreen(),
+        '/perfil':       (context) => const NutritionalProfileScreen(),
+        '/perfil_editar':(context) => const NutritionalProfileScreen(isEditing: true),
+        '/materias':     (context) => const MateriasScreen(),
       },
       onGenerateRoute: (settings) {
         if (settings.name == '/horario') {
