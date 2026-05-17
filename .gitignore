@@ -2,8 +2,21 @@
 __pycache__/
 *.py[cod]
 *.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.coverage
+
+# Variables de entorno y secretos
 .env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Entornos virtuales
 venv/
+env/
 .venv/
 
 # Flutter
@@ -11,10 +24,28 @@ nutricampus_ai/build/
 nutricampus_ai/.dart_tool/
 nutricampus_ai/.flutter-plugins
 nutricampus_ai/.flutter-plugins-dependencies
+nutricampus_ai/.pub-cache/
+nutricampus_ai/.pub/
+nutricampus_ai/coverage/
 nutricampus_ai/*.iml
+nutricampus_ai/doc/api/
+nutricampus_ai/ios/Flutter/.last_build_id
+nutricampus_ai/android/app/debug
+nutricampus_ai/android/app/profile
+nutricampus_ai/android/app/release
+
+# Symbolication / Obfuscation
+app.*.symbols
+app.*.map.json
 
 # VS Code
 .vscode/
+
+# IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
 
 # OS
 .DS_Store

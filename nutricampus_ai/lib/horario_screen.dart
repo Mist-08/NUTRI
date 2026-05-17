@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'materias_screen.dart'; // Importa el modelo Materia y hexToColor
+import 'materias_screen.dart';
+import 'api_service.dart';
 
-// ── Modelo Evento ───────────────────────────────────────────────
 class EventoAcademico {
   final int? id;
-  final String tipoEvento; // 'Examen' | 'Entrega'
+  final String tipoEvento;
   final DateTime fecha;
   final TimeOfDay horaInicio;
   final TimeOfDay? horaFin;
@@ -18,9 +18,24 @@ class EventoAcademico {
     this.horaFin,
     required this.descripcion,
   });
+
+  factory EventoAcademico.fromJson(Map<String, dynamic> json) {
+    return EventoAcademico(
+      id: json['id_evento'],
+      tipoEvento: json['tipo_evento'],
+      fecha: DateTime.parse(json['fecha']),
+      horaInicio: _parseTime(json['hora_inicio']),
+      horaFin: json['hora_fin'] != null ? _parseTime(json['hora_fin']) : null,
+      descripcion: json['descripcion'] ?? '',
+    );
+  }
+
+  static TimeOfDay _parseTime(String time) {
+    final parts = time.split(':');
+    return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+  }
 }
 
-// ── Pantalla de Horario ─────────────────────────────────────────
 class HorarioScreen extends StatefulWidget {
   final List<Materia> materias;
 
@@ -33,7 +48,63 @@ class HorarioScreen extends StatefulWidget {
 class _HorarioScreenState extends State<HorarioScreen> {
   DateTime _selectedDay = DateTime.now();
   DateTime _weekStart = _getWeekStart(DateTime.now());
-  final List<EventoAcademico> _eventos = [];
+  List<EventoAcademico> _eventos = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadEventos();
+  }
+
+  Future<void> _loadEventos() async {
+    final result = await ApiService.getEventos();
+    if (result['success']) {
+      final List data = result['data'];
+      setState(() {
+        _eventos = data.map((e) => EventoAcademico.fromJson(e)).toList();
+      });
+    }
+  }
+
+  Future<void> _deleteEvento(EventoAcademico evento) async {
+    if (evento.id == null) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar evento'),
+        content: Text('¿Seguro que deseas eliminar "${evento.descripcion}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) {
+      await _loadEventos();
+      return;
+    }
+
+    final result = await ApiService.deleteEvento(evento.id!);
+    if (result['success']) {
+      setState(() => _eventos.remove(evento));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Evento eliminado'), backgroundColor: Colors.red),
+        );
+      }
+    } else {
+      await _loadEventos();
+    }
+  }
 
   static DateTime _getWeekStart(DateTime date) {
     return date.subtract(Duration(days: date.weekday - 1));
@@ -80,6 +151,7 @@ class _HorarioScreenState extends State<HorarioScreen> {
   }
 
   void _showAddEventDialog() {
+    final screenContext = context;
     final formKey = GlobalKey<FormState>();
     final descController = TextEditingController();
     String tipo = 'Examen';
@@ -117,7 +189,6 @@ class _HorarioScreenState extends State<HorarioScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // Tipo
                 Row(
                   children: ['Examen', 'Entrega'].map((t) {
                     final colors = {
@@ -144,8 +215,7 @@ class _HorarioScreenState extends State<HorarioScreen> {
                               border: Border.all(color: c, width: isSelected ? 2 : 1),
                             ),
                             child: Column(children: [
-                              Icon(icons[t],
-                                  color: isSelected ? Colors.white : c),
+                              Icon(icons[t], color: isSelected ? Colors.white : c),
                               const SizedBox(height: 4),
                               Text(t, style: TextStyle(
                                 fontWeight: FontWeight.bold, fontSize: 13,
@@ -160,44 +230,37 @@ class _HorarioScreenState extends State<HorarioScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // Descripción
                 TextFormField(
                   controller: descController,
                   decoration: InputDecoration(
                     labelText: 'Descripción',
                     hintText: 'Ej: Examen parcial de Redes',
                     prefixIcon: const Icon(Icons.edit_outlined),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12)),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   validator: (v) => (v == null || v.trim().isEmpty)
                       ? 'Ingresa una descripción' : null,
                 ),
                 const SizedBox(height: 12),
 
-                // Fecha
                 GestureDetector(
                   onTap: () async {
                     final picked = await showDatePicker(
                       context: context,
                       initialDate: fecha,
-                      firstDate: DateTime.now()
-                          .subtract(const Duration(days: 30)),
-                      lastDate:
-                          DateTime.now().add(const Duration(days: 365)),
+                      firstDate: DateTime.now().subtract(const Duration(days: 30)),
+                      lastDate: DateTime.now().add(const Duration(days: 365)),
                     );
                     if (picked != null) setModal(() => fecha = picked);
                   },
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 14),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                     decoration: BoxDecoration(
                       border: Border.all(color: Colors.grey.shade400),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Row(children: [
-                      const Icon(Icons.calendar_today_outlined,
-                          color: Colors.green),
+                      const Icon(Icons.calendar_today_outlined, color: Colors.green),
                       const SizedBox(width: 12),
                       Text('${fecha.day}/${fecha.month}/${fecha.year}',
                           style: const TextStyle(fontSize: 16)),
@@ -206,36 +269,26 @@ class _HorarioScreenState extends State<HorarioScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                // Horas
                 Row(children: [
                   Expanded(
                     child: GestureDetector(
                       onTap: () async {
-                        final p = await showTimePicker(
-                            context: context, initialTime: horaInicio);
+                        final p = await showTimePicker(context: context, initialTime: horaInicio);
                         if (p != null) setModal(() => horaInicio = p);
                       },
                       child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 12),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                         decoration: BoxDecoration(
                           border: Border.all(color: Colors.grey.shade400),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Row(children: [
-                          const Icon(Icons.access_time,
-                              color: Colors.green, size: 18),
+                          const Icon(Icons.access_time, color: Colors.green, size: 18),
                           const SizedBox(width: 8),
-                          Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                            const Text('Inicio',
-                                style: TextStyle(
-                                    fontSize: 11, color: Colors.grey)),
+                          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            const Text('Inicio', style: TextStyle(fontSize: 11, color: Colors.grey)),
                             Text(_formatTime(horaInicio),
-                                style: const TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600)),
+                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                           ]),
                         ]),
                       ),
@@ -244,19 +297,15 @@ class _HorarioScreenState extends State<HorarioScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: GestureDetector(
-                      onTap: sinHoraFin
-                          ? null
-                          : () async {
-                              final p = await showTimePicker(
-                                context: context,
-                                initialTime: horaFin ??
-                                    const TimeOfDay(hour: 11, minute: 0),
-                              );
-                              if (p != null) setModal(() => horaFin = p);
-                            },
+                      onTap: sinHoraFin ? null : () async {
+                        final p = await showTimePicker(
+                          context: context,
+                          initialTime: horaFin ?? const TimeOfDay(hour: 11, minute: 0),
+                        );
+                        if (p != null) setModal(() => horaFin = p);
+                      },
                       child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 12),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                         decoration: BoxDecoration(
                           color: sinHoraFin ? Colors.grey.shade100 : null,
                           border: Border.all(color: Colors.grey.shade400),
@@ -264,23 +313,14 @@ class _HorarioScreenState extends State<HorarioScreen> {
                         ),
                         child: Row(children: [
                           Icon(Icons.access_time_filled,
-                              color:
-                                  sinHoraFin ? Colors.grey : Colors.green,
-                              size: 18),
+                              color: sinHoraFin ? Colors.grey : Colors.green, size: 18),
                           const SizedBox(width: 8),
-                          Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                            const Text('Fin',
-                                style: TextStyle(
-                                    fontSize: 11, color: Colors.grey)),
+                          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            const Text('Fin', style: TextStyle(fontSize: 11, color: Colors.grey)),
                             Text(
-                              horaFin != null
-                                  ? _formatTime(horaFin!)
-                                  : '--:--',
+                              horaFin != null ? _formatTime(horaFin!) : '--:--',
                               style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
+                                fontSize: 15, fontWeight: FontWeight.w600,
                                 color: sinHoraFin ? Colors.grey : null,
                               ),
                             ),
@@ -299,8 +339,7 @@ class _HorarioScreenState extends State<HorarioScreen> {
                       if (sinHoraFin) horaFin = null;
                     }),
                   ),
-                  const Text('Sin hora de fin',
-                      style: TextStyle(fontSize: 13, color: Colors.grey)),
+                  const Text('Sin hora de fin', style: TextStyle(fontSize: 13, color: Colors.grey)),
                 ]),
                 const SizedBox(height: 16),
 
@@ -311,23 +350,36 @@ class _HorarioScreenState extends State<HorarioScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
                       foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
-                    onPressed: () {
+                    onPressed: () async {
                       if (!formKey.currentState!.validate()) return;
-                      setState(() => _eventos.add(EventoAcademico(
-                        tipoEvento: tipo,
-                        fecha: fecha,
-                        horaInicio: horaInicio,
-                        horaFin: sinHoraFin ? null : horaFin,
-                        descripcion: descController.text.trim(),
-                      )));
                       Navigator.pop(context);
-                      // TODO: POST /eventos
+
+                      final result = await ApiService.saveEvento(
+                        tipoEvento: tipo,
+                        fecha: '${fecha.year}-${fecha.month.toString().padLeft(2, '0')}-${fecha.day.toString().padLeft(2, '0')}',
+                        horaInicio: _formatTime(horaInicio),
+                        horaFin: sinHoraFin ? null : (horaFin != null ? _formatTime(horaFin!) : null),
+                        descripcion: descController.text.trim(),
+                      );
+
+                      if (result['success']) {
+                        await _loadEventos();
+                        if (mounted) {
+                          ScaffoldMessenger.of(screenContext).showSnackBar(
+                            const SnackBar(content: Text('Evento guardado'), backgroundColor: Colors.green),
+                          );
+                        }
+                      } else {
+                        if (mounted) {
+                          ScaffoldMessenger.of(screenContext).showSnackBar(
+                            SnackBar(content: Text(result['error']), backgroundColor: Colors.red),
+                          );
+                        }
+                      }
                     },
-                    child: const Text('Guardar Evento',
-                        style: TextStyle(fontSize: 16)),
+                    child: const Text('Guardar Evento', style: TextStyle(fontSize: 16)),
                   ),
                 ),
               ],
@@ -361,7 +413,6 @@ class _HorarioScreenState extends State<HorarioScreen> {
       ),
       body: Column(
         children: [
-          // ── Selector semanal ───────────────────────────────
           Container(
             color: Colors.green,
             padding: const EdgeInsets.only(bottom: 16),
@@ -376,10 +427,7 @@ class _HorarioScreenState extends State<HorarioScreen> {
                     ),
                     Text(
                       '${_formatDate(_weekStart)} — ${_formatDate(_weekDays.last)} ${_weekStart.year}',
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15),
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
                     ),
                     IconButton(
                       icon: const Icon(Icons.chevron_right, color: Colors.white),
@@ -393,12 +441,9 @@ class _HorarioScreenState extends State<HorarioScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: List.generate(5, (i) {
                       final day = _weekDays[i];
-                      final isSelected = day.day == _selectedDay.day &&
-                          day.month == _selectedDay.month;
-                      final isToday = day.day == DateTime.now().day &&
-                          day.month == DateTime.now().month;
-                      final hasMateria =
-                          _materiasDelDia(day).isNotEmpty;
+                      final isSelected = day.day == _selectedDay.day && day.month == _selectedDay.month;
+                      final isToday = day.day == DateTime.now().day && day.month == DateTime.now().month;
+                      final hasMateria = _materiasDelDia(day).isNotEmpty;
                       final hasEvento = _eventosDelDia(day).isNotEmpty;
 
                       return GestureDetector(
@@ -408,32 +453,22 @@ class _HorarioScreenState extends State<HorarioScreen> {
                           width: 54,
                           padding: const EdgeInsets.symmetric(vertical: 8),
                           decoration: BoxDecoration(
-                            color: isSelected
-                                ? Colors.white
-                                : Colors.transparent,
+                            color: isSelected ? Colors.white : Colors.transparent,
                             borderRadius: BorderRadius.circular(14),
-                            border: isToday && !isSelected
-                                ? Border.all(color: Colors.white54)
-                                : null,
+                            border: isToday && !isSelected ? Border.all(color: Colors.white54) : null,
                           ),
                           child: Column(children: [
-                            Text(dayNames[i],
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: isSelected
-                                      ? Colors.green
-                                      : Colors.white70,
-                                  fontWeight: FontWeight.w600,
-                                )),
+                            Text(dayNames[i], style: TextStyle(
+                              fontSize: 11,
+                              color: isSelected ? Colors.green : Colors.white70,
+                              fontWeight: FontWeight.w600,
+                            )),
                             const SizedBox(height: 4),
-                            Text('${day.day}',
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: isSelected
-                                      ? Colors.green
-                                      : Colors.white,
-                                )),
+                            Text('${day.day}', style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: isSelected ? Colors.green : Colors.white,
+                            )),
                             const SizedBox(height: 4),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -443,9 +478,7 @@ class _HorarioScreenState extends State<HorarioScreen> {
                                     width: 5, height: 5,
                                     margin: const EdgeInsets.only(right: 2),
                                     decoration: BoxDecoration(
-                                      color: isSelected
-                                          ? Colors.green
-                                          : Colors.white,
+                                      color: isSelected ? Colors.green : Colors.white,
                                       shape: BoxShape.circle,
                                     ),
                                   ),
@@ -453,9 +486,7 @@ class _HorarioScreenState extends State<HorarioScreen> {
                                   Container(
                                     width: 5, height: 5,
                                     decoration: BoxDecoration(
-                                      color: isSelected
-                                          ? Colors.red
-                                          : Colors.red.shade200,
+                                      color: isSelected ? Colors.red : Colors.red.shade200,
                                       shape: BoxShape.circle,
                                     ),
                                   ),
@@ -471,19 +502,16 @@ class _HorarioScreenState extends State<HorarioScreen> {
             ),
           ),
 
-          // ── Contenido del día ──────────────────────────────
           Expanded(
             child: isWeekend
                 ? Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.weekend_outlined,
-                            size: 64, color: Colors.grey.shade300),
+                        Icon(Icons.weekend_outlined, size: 64, color: Colors.grey.shade300),
                         const SizedBox(height: 12),
                         Text('¡Es fin de semana!',
-                            style: TextStyle(
-                                fontSize: 18, color: Colors.grey.shade500)),
+                            style: TextStyle(fontSize: 18, color: Colors.grey.shade500)),
                       ],
                     ),
                   )
@@ -492,13 +520,10 @@ class _HorarioScreenState extends State<HorarioScreen> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.event_available_outlined,
-                                size: 64, color: Colors.grey.shade300),
+                            Icon(Icons.event_available_outlined, size: 64, color: Colors.grey.shade300),
                             const SizedBox(height: 12),
                             Text('Sin actividades este día',
-                                style: TextStyle(
-                                    fontSize: 16,
-                                    color: Colors.grey.shade500)),
+                                style: TextStyle(fontSize: 16, color: Colors.grey.shade500)),
                           ],
                         ),
                       )
@@ -509,23 +534,15 @@ class _HorarioScreenState extends State<HorarioScreen> {
                             const Padding(
                               padding: EdgeInsets.only(bottom: 8),
                               child: Text('Clases',
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                      color: Colors.grey)),
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey)),
                             ),
                             ...materiasHoy.map((m) => _materiaCard(m)),
                           ],
                           if (eventosHoy.isNotEmpty) ...[
                             Padding(
-                              padding: EdgeInsets.only(
-                                  top: materiasHoy.isNotEmpty ? 16 : 0,
-                                  bottom: 8),
+                              padding: EdgeInsets.only(top: materiasHoy.isNotEmpty ? 16 : 0, bottom: 8),
                               child: const Text('Eventos',
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                      color: Colors.grey)),
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey)),
                             ),
                             ...eventosHoy.map((e) => _eventoCard(e)),
                           ],
@@ -545,61 +562,40 @@ class _HorarioScreenState extends State<HorarioScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05),
-              blurRadius: 6, offset: const Offset(0, 2))
-        ],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 6, offset: const Offset(0, 2))],
       ),
       child: Row(children: [
         Container(
           width: 6, height: 72,
           decoration: BoxDecoration(
             color: color,
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(14),
-              bottomLeft: Radius.circular(14),
-            ),
+            borderRadius: const BorderRadius.only(topLeft: Radius.circular(14), bottomLeft: Radius.circular(14)),
           ),
         ),
         const SizedBox(width: 14),
         Container(
           width: 42, height: 42,
-          decoration: BoxDecoration(
-              color: color.withOpacity(0.15), shape: BoxShape.circle),
+          decoration: BoxDecoration(color: color.withOpacity(0.15), shape: BoxShape.circle),
           child: Center(
             child: Text(m.nombre[0].toUpperCase(),
-                style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                    color: color)),
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: color)),
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-            Text(m.nombre,
-                style: const TextStyle(
-                    fontWeight: FontWeight.bold, fontSize: 14)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(m.nombre, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
             const SizedBox(height: 3),
             Row(children: [
-              Icon(Icons.access_time,
-                  size: 12, color: Colors.grey.shade500),
+              Icon(Icons.access_time, size: 12, color: Colors.grey.shade500),
               const SizedBox(width: 4),
-              Text(
-                '${_formatTime(m.horaInicio)} - ${_formatTime(m.horaFin)}',
-                style: TextStyle(
-                    fontSize: 12, color: Colors.grey.shade600),
-              ),
+              Text('${_formatTime(m.horaInicio)} - ${_formatTime(m.horaFin)}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
               if (m.aula != null) ...[
                 const SizedBox(width: 10),
-                Icon(Icons.room_outlined,
-                    size: 12, color: Colors.grey.shade500),
+                Icon(Icons.room_outlined, size: 12, color: Colors.grey.shade500),
                 const SizedBox(width: 4),
-                Text(m.aula!,
-                    style: TextStyle(
-                        fontSize: 12, color: Colors.grey.shade600)),
+                Text(m.aula!, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
               ],
             ]),
           ]),
@@ -610,99 +606,72 @@ class _HorarioScreenState extends State<HorarioScreen> {
   }
 
   Widget _eventoCard(EventoAcademico e) {
-    final color = e.tipoEvento == 'Examen'
-        ? Colors.red.shade600
-        : Colors.orange.shade600;
-    final icon = e.tipoEvento == 'Examen'
-        ? Icons.assignment_outlined
-        : Icons.upload_file_outlined;
+    final color = e.tipoEvento == 'Examen' ? Colors.red.shade600 : Colors.orange.shade600;
+    final icon = e.tipoEvento == 'Examen' ? Icons.assignment_outlined : Icons.upload_file_outlined;
 
     return Dismissible(
-      key: Key('${e.descripcion}_${e.fecha}'),
+      key: Key('evento_${e.id}'),
       direction: DismissDirection.endToStart,
+      confirmDismiss: (_) async => false,
+      onDismissed: (_) {},
       background: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 20),
         margin: const EdgeInsets.only(bottom: 10),
-        decoration: BoxDecoration(
-          color: Colors.red.shade100,
-          borderRadius: BorderRadius.circular(14),
-        ),
+        decoration: BoxDecoration(color: Colors.red.shade100, borderRadius: BorderRadius.circular(14)),
         child: const Icon(Icons.delete_outline, color: Colors.red),
       ),
-      onDismissed: (_) {
-        setState(() => _eventos.remove(e));
-        // TODO: DELETE /eventos/{id}
-      },
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: color.withOpacity(0.3)),
-          boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.05),
-                blurRadius: 6, offset: const Offset(0, 2))
-          ],
-        ),
-        child: Row(children: [
-          Container(
-            width: 6, height: 72,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(14),
-                bottomLeft: Radius.circular(14),
+      child: GestureDetector(
+        onLongPress: () => _deleteEvento(e),
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: color.withOpacity(0.3)),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 6, offset: const Offset(0, 2))],
+          ),
+          child: Row(children: [
+            Container(
+              width: 6, height: 72,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: const BorderRadius.only(topLeft: Radius.circular(14), bottomLeft: Radius.circular(14)),
               ),
             ),
-          ),
-          const SizedBox(width: 14),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10)),
-            child: Icon(icon, color: color, size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-              Text(e.descripcion,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 14)),
-              const SizedBox(height: 3),
-              Row(children: [
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(4),
+            const SizedBox(width: 14),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(e.descripcion, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                const SizedBox(height: 3),
+                Row(children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
+                    child: Text(e.tipoEvento,
+                        style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.bold)),
                   ),
-                  child: Text(e.tipoEvento,
-                      style: TextStyle(
-                          fontSize: 10,
-                          color: color,
-                          fontWeight: FontWeight.bold)),
-                ),
-                const SizedBox(width: 8),
-                Icon(Icons.access_time,
-                    size: 12, color: Colors.grey.shade500),
-                const SizedBox(width: 4),
-                Text(
-                  e.horaFin != null
-                      ? '${_formatTime(e.horaInicio)} - ${_formatTime(e.horaFin!)}'
-                      : _formatTime(e.horaInicio),
-                  style: TextStyle(
-                      fontSize: 12, color: Colors.grey.shade600),
-                ),
+                  const SizedBox(width: 8),
+                  Icon(Icons.access_time, size: 12, color: Colors.grey.shade500),
+                  const SizedBox(width: 4),
+                  Text(
+                    e.horaFin != null
+                        ? '${_formatTime(e.horaInicio)} - ${_formatTime(e.horaFin!)}'
+                        : _formatTime(e.horaInicio),
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                ]),
               ]),
-            ]),
-          ),
-          const SizedBox(width: 12),
-        ]),
+            ),
+            const SizedBox(width: 12),
+          ]),
+        ),
       ),
     );
   }

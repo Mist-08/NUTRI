@@ -6,7 +6,6 @@ class ApiService {
   static const String _baseUrl = 'http://localhost:8000';
   static String? _cachedToken;
 
-  // Llama esto en main.dart antes de runApp para cargar el token guardado
   static Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
     _cachedToken = prefs.getString('token');
@@ -42,6 +41,8 @@ class ApiService {
       'Authorization': 'Bearer $token',
     };
   }
+
+  // ── Autenticación ────────────────────────────────────────────
 
   static Future<Map<String, dynamic>> register({
     required String nombre,
@@ -94,6 +95,52 @@ class ApiService {
     }
   }
 
+  // ── Usuario ──────────────────────────────────────────────────
+
+  /// GET /usuarios/me — devuelve nombre, correo, id del usuario actual
+  static Future<Map<String, dynamic>> getMe() async {
+    try {
+      final headers = await _authHeaders;
+      final response = await http.get(
+        Uri.parse('$_baseUrl/usuarios/me'),
+        headers: headers,
+      );
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200) {
+        return {'success': true, 'data': data};
+      } else {
+        return {'success': false, 'error': data['detail'] ?? 'Error'};
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'No se pudo conectar al servidor'};
+    }
+  }
+
+  // ── Perfil Nutricional ────────────────────────────────────────
+
+  /// GET /usuarios/perfil — obtiene el perfil nutricional del usuario
+  static Future<Map<String, dynamic>> getPerfil() async {
+    try {
+      final headers = await _authHeaders;
+      final response = await http.get(
+        Uri.parse('$_baseUrl/usuarios/perfil'),
+        headers: headers,
+      );
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200) {
+        return {'success': true, 'data': data};
+      } else if (response.statusCode == 404) {
+        // Perfil aún no creado — no es un error crítico
+        return {'success': false, 'notFound': true};
+      } else {
+        return {'success': false, 'error': data['detail'] ?? 'Error'};
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'No se pudo conectar al servidor'};
+    }
+  }
+
+  /// POST /usuarios/perfil — crea o actualiza el perfil nutricional
   static Future<Map<String, dynamic>> savePerfil({
     required int edad,
     required double peso,
@@ -134,6 +181,8 @@ class ApiService {
       return {'success': false, 'error': 'No se pudo conectar al servidor'};
     }
   }
+
+  // ── Materias ──────────────────────────────────────────────────
 
   static Future<Map<String, dynamic>> getMaterias() async {
     try {
@@ -196,6 +245,70 @@ class ApiService {
     }
   }
 
+  static Future<Map<String, dynamic>> updateMateria({
+    required int id,
+    required String nombre,
+    String? aula,
+    String? profesor,
+    required String color,
+    required bool lunes,
+    required bool martes,
+    required bool miercoles,
+    required bool jueves,
+    required bool viernes,
+    required String horaInicio,
+    required String horaFin,
+  }) async {
+    try {
+      final headers = await _authHeaders;
+      final response = await http.put(
+        Uri.parse('$_baseUrl/materias/$id'),
+        headers: headers,
+        body: jsonEncode({
+          'nombre': nombre,
+          'aula': aula,
+          'profesor': profesor,
+          'color': color,
+          'lunes': lunes,
+          'martes': martes,
+          'miercoles': miercoles,
+          'jueves': jueves,
+          'viernes': viernes,
+          'hora_inicio': horaInicio,
+          'hora_fin': horaFin,
+        }),
+      );
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200) {
+        return {'success': true, 'data': data};
+      } else {
+        return {'success': false, 'error': data['detail'] ?? 'Error'};
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'No se pudo conectar al servidor'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> deleteMateria(int id) async {
+    try {
+      final headers = await _authHeaders;
+      final response = await http.delete(
+        Uri.parse('$_baseUrl/materias/$id'),
+        headers: headers,
+      );
+      if (response.statusCode == 204) {
+        return {'success': true};
+      } else {
+        final data = jsonDecode(response.body);
+        return {'success': false, 'error': data['detail'] ?? 'Error'};
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'No se pudo conectar al servidor'};
+    }
+  }
+
+  // ── Eventos ───────────────────────────────────────────────────
+
   static Future<Map<String, dynamic>> getEventos() async {
     try {
       final headers = await _authHeaders;
@@ -238,6 +351,24 @@ class ApiService {
       if (response.statusCode == 201) {
         return {'success': true, 'data': data};
       } else {
+        return {'success': false, 'error': data['detail'] ?? 'Error'};
+      }
+    } catch (e) {
+      return {'success': false, 'error': 'No se pudo conectar al servidor'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> deleteEvento(int id) async {
+    try {
+      final headers = await _authHeaders;
+      final response = await http.delete(
+        Uri.parse('$_baseUrl/eventos/$id'),
+        headers: headers,
+      );
+      if (response.statusCode == 204) {
+        return {'success': true};
+      } else {
+        final data = jsonDecode(response.body);
         return {'success': false, 'error': data['detail'] ?? 'Error'};
       }
     } catch (e) {

@@ -65,23 +65,15 @@ class Materia {
   }
 }
 
-// ── Colores disponibles ──────────────────────────────────────────
 const List<String> _coloresDisponibles = [
-  '#4CAF50',
-  '#2196F3',
-  '#F44336',
-  '#FF9800',
-  '#9C27B0',
-  '#00BCD4',
-  '#E91E63',
-  '#795548',
+  '#4CAF50', '#2196F3', '#F44336', '#FF9800',
+  '#9C27B0', '#00BCD4', '#E91E63', '#795548',
 ];
 
 Color hexToColor(String hex) {
   return Color(int.parse(hex.replaceFirst('#', '0xFF')));
 }
 
-// ── Pantalla Principal ──────────────────────────────────────────
 class MateriasScreen extends StatefulWidget {
   const MateriasScreen({super.key});
 
@@ -103,12 +95,9 @@ class _MateriasScreenState extends State<MateriasScreen> {
     setState(() => _isLoading = true);
     final result = await ApiService.getMaterias();
     setState(() => _isLoading = false);
-
     if (result['success']) {
       final List data = result['data'];
-      setState(() {
-        _materias = data.map((m) => Materia.fromJson(m)).toList();
-      });
+      setState(() => _materias = data.map((m) => Materia.fromJson(m)).toList());
     }
   }
 
@@ -118,10 +107,53 @@ class _MateriasScreenState extends State<MateriasScreen> {
     return '$h:$m';
   }
 
-  void _showMateriaDialog({Materia? materia}) {
-    // Guarda el contexto de la pantalla antes de abrir el modal
-    final screenContext = context;
+  Future<void> _deleteMateria(Materia materia, int index) async {
+    if (materia.id == null) return;
 
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar materia'),
+        content: Text('¿Seguro que deseas eliminar "${materia.nombre}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) {
+      await _loadMaterias();
+      return;
+    }
+
+    final result = await ApiService.deleteMateria(materia.id!);
+    if (result['success']) {
+      setState(() => _materias.removeAt(index));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Materia eliminada'), backgroundColor: Colors.red),
+        );
+      }
+    } else {
+      await _loadMaterias();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result['error']), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  void _showMateriaDialog({Materia? materia}) {
+    final screenContext = context;
     final formKey = GlobalKey<FormState>();
     final nombreController = TextEditingController(text: materia?.nombre ?? '');
     final aulaController = TextEditingController(text: materia?.aula ?? '');
@@ -155,7 +187,6 @@ class _MateriasScreenState extends State<MateriasScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -225,8 +256,7 @@ class _MateriasScreenState extends State<MateriasScreen> {
                         onTap: () => setModalState(() => colorSeleccionado = hex),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 150),
-                          width: 36,
-                          height: 36,
+                          width: 36, height: 36,
                           decoration: BoxDecoration(
                             color: hexToColor(hex),
                             shape: BoxShape.circle,
@@ -235,9 +265,7 @@ class _MateriasScreenState extends State<MateriasScreen> {
                               width: 3,
                             ),
                           ),
-                          child: isSelected
-                              ? const Icon(Icons.check, color: Colors.white, size: 18)
-                              : null,
+                          child: isSelected ? const Icon(Icons.check, color: Colors.white, size: 18) : null,
                         ),
                       );
                     }).toList(),
@@ -265,9 +293,7 @@ class _MateriasScreenState extends State<MateriasScreen> {
                     children: [
                       Expanded(
                         child: _timePickerButton(
-                          label: 'Inicio',
-                          time: horaInicio,
-                          color: colorSeleccionado,
+                          label: 'Inicio', time: horaInicio, color: colorSeleccionado,
                           onTap: () async {
                             final picked = await showTimePicker(context: context, initialTime: horaInicio);
                             if (picked != null) setModalState(() => horaInicio = picked);
@@ -277,9 +303,7 @@ class _MateriasScreenState extends State<MateriasScreen> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: _timePickerButton(
-                          label: 'Fin',
-                          time: horaFin,
-                          color: colorSeleccionado,
+                          label: 'Fin', time: horaFin, color: colorSeleccionado,
                           onTap: () async {
                             final picked = await showTimePicker(context: context, initialTime: horaFin);
                             if (picked != null) setModalState(() => horaFin = picked);
@@ -308,28 +332,40 @@ class _MateriasScreenState extends State<MateriasScreen> {
                           return;
                         }
 
-                        // Cierra el modal antes de hacer la petición
                         Navigator.pop(context);
 
-                        final result = await ApiService.saveMateria(
-                          nombre: nombreController.text.trim(),
-                          aula: aulaController.text.trim().isEmpty ? null : aulaController.text.trim(),
-                          profesor: profesorController.text.trim().isEmpty ? null : profesorController.text.trim(),
-                          color: colorSeleccionado,
-                          lunes: lunes,
-                          martes: martes,
-                          miercoles: miercoles,
-                          jueves: jueves,
-                          viernes: viernes,
-                          horaInicio: '${horaInicio.hour.toString().padLeft(2, '0')}:${horaInicio.minute.toString().padLeft(2, '0')}',
-                          horaFin: '${horaFin.hour.toString().padLeft(2, '0')}:${horaFin.minute.toString().padLeft(2, '0')}',
-                        );
+                        final horaInicioStr = _formatTime(horaInicio);
+                        final horaFinStr = _formatTime(horaFin);
+
+                        final result = (materia != null && materia.id != null)
+                            ? await ApiService.updateMateria(
+                                id: materia.id!,
+                                nombre: nombreController.text.trim(),
+                                aula: aulaController.text.trim().isEmpty ? null : aulaController.text.trim(),
+                                profesor: profesorController.text.trim().isEmpty ? null : profesorController.text.trim(),
+                                color: colorSeleccionado,
+                                lunes: lunes, martes: martes, miercoles: miercoles,
+                                jueves: jueves, viernes: viernes,
+                                horaInicio: horaInicioStr, horaFin: horaFinStr,
+                              )
+                            : await ApiService.saveMateria(
+                                nombre: nombreController.text.trim(),
+                                aula: aulaController.text.trim().isEmpty ? null : aulaController.text.trim(),
+                                profesor: profesorController.text.trim().isEmpty ? null : profesorController.text.trim(),
+                                color: colorSeleccionado,
+                                lunes: lunes, martes: martes, miercoles: miercoles,
+                                jueves: jueves, viernes: viernes,
+                                horaInicio: horaInicioStr, horaFin: horaFinStr,
+                              );
 
                         if (result['success']) {
                           await _loadMaterias();
                           if (mounted) {
                             ScaffoldMessenger.of(screenContext).showSnackBar(
-                              const SnackBar(content: Text('Materia guardada'), backgroundColor: Colors.green),
+                              SnackBar(
+                                content: Text(materia != null ? 'Materia actualizada' : 'Materia guardada'),
+                                backgroundColor: Colors.green,
+                              ),
                             );
                           }
                         } else {
@@ -360,22 +396,17 @@ class _MateriasScreenState extends State<MateriasScreen> {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
-        width: 44,
-        height: 44,
+        width: 44, height: 44,
         decoration: BoxDecoration(
           color: selected ? hexToColor(colorHex) : Colors.grey.shade100,
           shape: BoxShape.circle,
           border: Border.all(color: selected ? hexToColor(colorHex) : Colors.grey.shade300),
         ),
         child: Center(
-          child: Text(
-            label,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 13,
-              color: selected ? Colors.white : Colors.grey.shade600,
-            ),
-          ),
+          child: Text(label, style: TextStyle(
+            fontWeight: FontWeight.bold, fontSize: 13,
+            color: selected ? Colors.white : Colors.grey.shade600,
+          )),
         ),
       ),
     );
@@ -399,16 +430,11 @@ class _MateriasScreenState extends State<MateriasScreen> {
           children: [
             Icon(Icons.access_time, color: hexToColor(color), size: 18),
             const SizedBox(width: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                Text(
-                  '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                ),
-              ],
-            ),
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              Text(_formatTime(time),
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            ]),
           ],
         ),
       ),
@@ -451,10 +477,8 @@ class _MateriasScreenState extends State<MateriasScreen> {
                     children: [
                       Icon(Icons.menu_book_outlined, size: 80, color: Colors.grey.shade200),
                       const SizedBox(height: 20),
-                      const Text(
-                        'Aún no tienes materias',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
-                      ),
+                      const Text('Aún no tienes materias',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
                       const SizedBox(height: 8),
                       Text(
                         'Registra tus materias del semestre\npara organizar tu horario',
@@ -496,11 +520,11 @@ class _MateriasScreenState extends State<MateriasScreen> {
                         ),
                         child: const Icon(Icons.delete_outline, color: Colors.red),
                       ),
-                      onDismissed: (_) {
-                        setState(() => _materias.removeAt(index));
-                      },
+                      confirmDismiss: (_) async => false, // El dialog maneja la confirmacion
+                      onDismissed: (_) {},
                       child: GestureDetector(
                         onTap: () => _showMateriaDialog(materia: materia),
+                        onLongPress: () => _deleteMateria(materia, index),
                         child: Container(
                           margin: const EdgeInsets.only(bottom: 12),
                           decoration: BoxDecoration(
@@ -517,8 +541,7 @@ class _MateriasScreenState extends State<MateriasScreen> {
                           child: Row(
                             children: [
                               Container(
-                                width: 6,
-                                height: 90,
+                                width: 6, height: 90,
                                 decoration: BoxDecoration(
                                   color: color,
                                   borderRadius: const BorderRadius.only(
@@ -529,17 +552,14 @@ class _MateriasScreenState extends State<MateriasScreen> {
                               ),
                               const SizedBox(width: 16),
                               Container(
-                                width: 46,
-                                height: 46,
+                                width: 46, height: 46,
                                 decoration: BoxDecoration(
                                   color: color.withOpacity(0.15),
                                   shape: BoxShape.circle,
                                 ),
                                 child: Center(
-                                  child: Text(
-                                    materia.nombre[0].toUpperCase(),
-                                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color),
-                                  ),
+                                  child: Text(materia.nombre[0].toUpperCase(),
+                                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
                                 ),
                               ),
                               const SizedBox(width: 14),
@@ -550,46 +570,38 @@ class _MateriasScreenState extends State<MateriasScreen> {
                                     Text(materia.nombre,
                                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                                     const SizedBox(height: 4),
-                                    Row(
-                                      children: [
-                                        Icon(Icons.calendar_today_outlined, size: 13, color: Colors.grey.shade500),
-                                        const SizedBox(width: 4),
-                                        Text(materia.diasTexto,
-                                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                                        const SizedBox(width: 12),
-                                        Icon(Icons.access_time, size: 13, color: Colors.grey.shade500),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          '${_formatTime(materia.horaInicio)} - ${_formatTime(materia.horaFin)}',
-                                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                                        ),
-                                      ],
-                                    ),
+                                    Row(children: [
+                                      Icon(Icons.calendar_today_outlined, size: 13, color: Colors.grey.shade500),
+                                      const SizedBox(width: 4),
+                                      Text(materia.diasTexto,
+                                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                      const SizedBox(width: 12),
+                                      Icon(Icons.access_time, size: 13, color: Colors.grey.shade500),
+                                      const SizedBox(width: 4),
+                                      Text('${_formatTime(materia.horaInicio)} - ${_formatTime(materia.horaFin)}',
+                                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                    ]),
                                     if (materia.aula != null || materia.profesor != null)
                                       Padding(
                                         padding: const EdgeInsets.only(top: 4),
-                                        child: Row(
-                                          children: [
-                                            if (materia.aula != null) ...[
-                                              Icon(Icons.room_outlined, size: 13, color: Colors.grey.shade500),
-                                              const SizedBox(width: 4),
-                                              Text(materia.aula!,
-                                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                                              const SizedBox(width: 12),
-                                            ],
-                                            if (materia.profesor != null) ...[
-                                              Icon(Icons.person_outline, size: 13, color: Colors.grey.shade500),
-                                              const SizedBox(width: 4),
-                                              Expanded(
-                                                child: Text(
-                                                  materia.profesor!,
-                                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                                                  overflow: TextOverflow.ellipsis,
-                                                ),
-                                              ),
-                                            ],
+                                        child: Row(children: [
+                                          if (materia.aula != null) ...[
+                                            Icon(Icons.room_outlined, size: 13, color: Colors.grey.shade500),
+                                            const SizedBox(width: 4),
+                                            Text(materia.aula!,
+                                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                            const SizedBox(width: 12),
                                           ],
-                                        ),
+                                          if (materia.profesor != null) ...[
+                                            Icon(Icons.person_outline, size: 13, color: Colors.grey.shade500),
+                                            const SizedBox(width: 4),
+                                            Expanded(
+                                              child: Text(materia.profesor!,
+                                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                                  overflow: TextOverflow.ellipsis),
+                                            ),
+                                          ],
+                                        ]),
                                       ),
                                   ],
                                 ),

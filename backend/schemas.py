@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional
-from datetime import time
+from datetime import time, date
 
 
 # ── Registro ─────────────────────────────────────────────────────
@@ -103,13 +103,15 @@ class MateriaResponse(MateriaCreate):
 
     class Config:
         from_attributes = True
-   
+
     @field_validator('hora_inicio', 'hora_fin', mode='before')
     @classmethod
     def convert_time(cls, v):
         if isinstance(v, time):
             return v.strftime('%H:%M')
         return v
+
+
 # ── Eventos Académicos ────────────────────────────────────────────
 
 class EventoCreate(BaseModel):
@@ -127,3 +129,19 @@ class EventoResponse(EventoCreate):
 
     class Config:
         from_attributes = True
+
+    @field_validator('fecha', mode='before')
+    @classmethod
+    def convert_fecha(cls, v):
+        # date y datetime → "YYYY-MM-DD"
+        # (datetime es subclase de date, así que un solo check cubre ambos)
+        if isinstance(v, date):
+            return v.strftime('%Y-%m-%d')
+        return v
+
+    @field_validator('hora_inicio', 'hora_fin', mode='before')
+    @classmethod
+    def convert_hora(cls, v):
+        if isinstance(v, time):
+            return v.strftime('%H:%M')
+        return v

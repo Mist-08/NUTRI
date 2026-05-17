@@ -9,14 +9,10 @@ from database import get_db
 router = APIRouter()
 
 
-# ── Helper: usuario autenticado desde el header ──────────────────
-
 async def get_current_user(
     request: Request,
     db: Session = Depends(get_db)
 ) -> models.Usuario:
-    auth_header = request.headers.get("Authorization")
-    print(f"Header recibido: {auth_header}")
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Token inválido o expirado",
@@ -45,7 +41,7 @@ async def get_current_user(
     return user
 
 
-# ── POST /auth/register ──────────────────────────────────────────
+# ── Auth ──────────────────────────────────────────────────────────
 
 @router.post("/auth/register", response_model=schemas.UsuarioResponse, status_code=201)
 def register(user_data: schemas.UsuarioCreate, db: Session = Depends(get_db)):
@@ -67,8 +63,6 @@ def register(user_data: schemas.UsuarioCreate, db: Session = Depends(get_db)):
     return nuevo
 
 
-# ── POST /auth/login ─────────────────────────────────────────────
-
 @router.post("/auth/login", response_model=schemas.TokenResponse)
 def login(credentials: schemas.LoginRequest, db: Session = Depends(get_db)):
     user = db.query(models.Usuario).filter(
@@ -81,18 +75,35 @@ def login(credentials: schemas.LoginRequest, db: Session = Depends(get_db)):
     user.ultimo_login = func.now()
     db.commit()
 
-    token = auth.create_access_token(data={"sub": user.id_usuario})
+    token = auth.create_access_token(data={"sub": str(user.id_usuario)})
     return {"access_token": token, "token_type": "bearer"}
 
 
-# ── GET /usuarios/me ─────────────────────────────────────────────
+# ── Usuarios ──────────────────────────────────────────────────────
 
 @router.get("/usuarios/me", response_model=schemas.UsuarioResponse)
 async def get_me(current_user: models.Usuario = Depends(get_current_user)):
     return current_user
 
 
-# ── POST /usuarios/perfil ────────────────────────────────────────
+# ── Perfil Nutricional ────────────────────────────────────────────
+
+@router.get("/usuarios/perfil", response_model=schemas.PerfilResponse)
+async def get_perfil(
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(get_current_user),
+):
+    """Obtiene el perfil nutricional del usuario autenticado."""
+    perfil = db.query(models.PerfilNutricional).filter(
+        models.PerfilNutricional.id_usuario == current_user.id_usuario
+    ).first()
+    if not perfil:
+        raise HTTPException(
+            status_code=404,
+            detail="Perfil nutricional no encontrado"
+        )
+    return perfil
+
 
 @router.post("/usuarios/perfil", response_model=schemas.PerfilResponse, status_code=201)
 async def save_perfil(
@@ -100,6 +111,7 @@ async def save_perfil(
     db: Session = Depends(get_db),
     current_user: models.Usuario = Depends(get_current_user),
 ):
+    """Crea o actualiza el perfil nutricional del usuario autenticado."""
     perfil = db.query(models.PerfilNutricional).filter(
         models.PerfilNutricional.id_usuario == current_user.id_usuario
     ).first()
@@ -119,7 +131,7 @@ async def save_perfil(
     return perfil
 
 
-# ── POST /materias ───────────────────────────────────────────────
+# ── Materias ──────────────────────────────────────────────────────
 
 @router.post("/materias", response_model=schemas.MateriaResponse, status_code=201)
 async def create_materia(
@@ -137,8 +149,6 @@ async def create_materia(
     return materia
 
 
-# ── GET /materias ────────────────────────────────────────────────
-
 @router.get("/materias", response_model=list[schemas.MateriaResponse])
 async def get_materias(
     db: Session = Depends(get_db),
@@ -149,7 +159,48 @@ async def get_materias(
     ).all()
 
 
-# ── POST /eventos ────────────────────────────────────────────────
+@router.put("/materias/{id_materia}", response_model=schemas.MateriaResponse)
+async def update_materia(
+    id_materia: int,
+    materia_data: schemas.MateriaCreate,
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(get_current_user),
+):
+    materia = db.query(models.Materia).filter(
+        models.Materia.id_materia == id_materia,
+        models.Materia.id_usuario == current_user.id_usuario
+    ).first()
+
+    if not materia:
+        raise HTTPException(status_code=404, detail="Materia no encontrada")
+
+    for key, value in materia_data.model_dump().items():
+        setattr(materia, key, value)
+
+    db.commit()
+    db.refresh(materia)
+    return materia
+
+
+@router.delete("/materias/{id_materia}", status_code=204)
+async def delete_materia(
+    id_materia: int,
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(get_current_user),
+):
+    materia = db.query(models.Materia).filter(
+        models.Materia.id_materia == id_materia,
+        models.Materia.id_usuario == current_user.id_usuario
+    ).first()
+
+    if not materia:
+        raise HTTPException(status_code=404, detail="Materia no encontrada")
+
+    db.delete(materia)
+    db.commit()
+
+
+# ── Eventos ───────────────────────────────────────────────────────
 
 @router.post("/eventos", response_model=schemas.EventoResponse, status_code=201)
 async def create_evento(
@@ -167,8 +218,6 @@ async def create_evento(
     return evento
 
 
-# ── GET /eventos ─────────────────────────────────────────────────
-
 @router.get("/eventos", response_model=list[schemas.EventoResponse])
 async def get_eventos(
     db: Session = Depends(get_db),
@@ -177,3 +226,21 @@ async def get_eventos(
     return db.query(models.EventoAcademico).filter(
         models.EventoAcademico.id_usuario == current_user.id_usuario
     ).all()
+
+
+@router.delete("/eventos/{id_evento}", status_code=204)
+async def delete_evento(
+    id_evento: int,
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(get_current_user),
+):
+    evento = db.query(models.EventoAcademico).filter(
+        models.EventoAcademico.id_evento == id_evento,
+        models.EventoAcademico.id_usuario == current_user.id_usuario
+    ).first()
+
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+
+    db.delete(evento)
+    db.commit()
