@@ -13,8 +13,11 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _nombre;
   Map<String, dynamic>? _perfil;
   List<Materia> _materias = [];
-  bool _loading = true;
-  String? _error;
+
+  bool _loading = true;          // primera carga
+  bool _refreshing = false;       // pull-to-refresh
+  String? _criticalError;         // error que impide mostrar la UI
+  String? _warning;               // aviso secundario (algunas llamadas fallaron)
 
   @override
   void initState() {
@@ -22,37 +25,102 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadData();
   }
 
-  Future<void> _loadData() async {
-    try {
-      final results = await Future.wait([
-        ApiService.getMe(),
-        ApiService.getPerfil(),
-        ApiService.getMaterias(),
-      ]);
+  /// Carga todos los datos en paralelo.
+  /// Si el token expiró (401), se desloguea automáticamente.
+  Future<void> _loadData({bool isRefresh = false}) async {
+    setState(() {
+      if (isRefresh) {
+        _refreshing = true;
+      } else {
+        _loading = true;
+      }
+      _criticalError = null;
+      _warning = null;
+    });
 
-      final meRes = results[0];
-      final perfilRes = results[1];
-      final materiasRes = results[2];
+    final results = await Future.wait([
+      ApiService.getMe(),
+      ApiService.getPerfil(),
+      ApiService.getMaterias(),
+    ]);
 
-      setState(() {
-        if (meRes['success'] == true) {
-          _nombre = meRes['data']['nombre'];
-        }
-        if (perfilRes['success'] == true) {
-          _perfil = perfilRes['data'];
-        }
-        if (materiasRes['success'] == true) {
-          final list = materiasRes['data'] as List;
-          _materias = list.map((m) => Materia.fromJson(m)).toList();
-        }
-        _loading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _error = 'Error al cargar datos';
-        _loading = false;
-      });
+    final meRes = results[0];
+    final perfilRes = results[1];
+    final materiasRes = results[2];
+
+    // Si CUALQUIER respuesta devuelve 401, el token expiró → logout.
+    if (_isUnauthorized(meRes) ||
+        _isUnauthorized(perfilRes) ||
+        _isUnauthorized(materiasRes)) {
+      await _forceLogout('Tu sesión expiró. Inicia sesión de nuevo.');
+      return;
     }
+
+    // Si getMe falla con error de red/timeout, lo tratamos como crítico:
+    // sin nombre de usuario el home no tiene sentido.
+    final meIsNetworkError = !meRes['success'] && _isNetworkLike(meRes);
+    final materiasIsNetworkError =
+        !materiasRes['success'] && _isNetworkLike(materiasRes);
+
+    if (meIsNetworkError && materiasIsNetworkError) {
+      setState(() {
+        _loading = false;
+        _refreshing = false;
+        _criticalError = meRes['error'] as String? ??
+            'No se pudieron cargar los datos. Verifica tu conexión.';
+      });
+      return;
+    }
+
+    // Recopilamos avisos no críticos (perfil 404 no es aviso, es estado normal).
+    final warnings = <String>[];
+    if (!meRes['success']) warnings.add('No se pudo cargar tu nombre');
+    if (!materiasRes['success']) warnings.add('No se pudieron cargar las materias');
+    if (!perfilRes['success'] &&
+        perfilRes['errorType'] != ApiErrorType.notFound) {
+      warnings.add('No se pudo cargar el perfil nutricional');
+    }
+
+    setState(() {
+      if (meRes['success'] == true) {
+        _nombre = meRes['data']['nombre'];
+      }
+      if (perfilRes['success'] == true) {
+        _perfil = perfilRes['data'];
+      } else if (perfilRes['errorType'] == ApiErrorType.notFound) {
+        _perfil = null; // perfil aún no creado, NO es error
+      }
+      if (materiasRes['success'] == true) {
+        final list = materiasRes['data'] as List;
+        _materias = list.map((m) => Materia.fromJson(m)).toList();
+      }
+      _loading = false;
+      _refreshing = false;
+      _warning = warnings.isEmpty ? null : warnings.join(' · ');
+    });
+  }
+
+  bool _isUnauthorized(Map<String, dynamic> res) =>
+      res['errorType'] == ApiErrorType.unauthorized;
+
+  bool _isNetworkLike(Map<String, dynamic> res) {
+    final t = res['errorType'];
+    return t == ApiErrorType.timeout ||
+        t == ApiErrorType.network ||
+        t == ApiErrorType.unknown;
+  }
+
+  Future<void> _forceLogout(String message) async {
+    await ApiService.clearToken();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.orange[800],
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
   }
 
   double? get _imc {
@@ -60,7 +128,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final peso = (_perfil!['peso'] as num?)?.toDouble();
     final altura = (_perfil!['altura'] as num?)?.toDouble();
     if (peso == null || altura == null || altura == 0) return null;
-    return peso / (altura * altura);
+    // El perfil guarda altura en cm
+    final alturaM = altura / 100;
+    return peso / (alturaM * alturaM);
   }
 
   String _imcCategoria(double imc) {
@@ -85,10 +155,11 @@ class _HomeScreenState extends State<HomeScreen> {
           behavior: SnackBarBehavior.floating,
         ),
       );
-      Navigator.pushNamed(context, '/materias');
+      Navigator.pushNamed(context, '/materias').then((_) => _loadData());
       return;
     }
-    Navigator.pushNamed(context, '/horario', arguments: _materias);
+    Navigator.pushNamed(context, '/horario', arguments: _materias)
+        .then((_) => _loadData());
   }
 
   Future<void> _logout() async {
@@ -112,7 +183,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (confirm == true && mounted) {
       await ApiService.clearToken();
-      Navigator.pushReplacementNamed(context, '/login');
+      if (mounted) {
+        Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
+      }
     }
   }
 
@@ -127,11 +200,15 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
+    if (_criticalError != null) {
+      return _buildErrorScreen();
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
       body: RefreshIndicator(
         color: Colors.green,
-        onRefresh: _loadData,
+        onRefresh: () => _loadData(isRefresh: true),
         child: CustomScrollView(
           slivers: [
             _buildSliverAppBar(),
@@ -141,6 +218,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (_warning != null) ...[
+                      const SizedBox(height: 16),
+                      _buildWarningBanner(),
+                    ],
                     const SizedBox(height: 24),
                     if (_perfil != null) ...[
                       _buildStatsRow(),
@@ -166,6 +247,113 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Pantalla cuando la carga falló por completo (sin red, backend caído, etc.)
+  Widget _buildErrorScreen() {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA),
+      appBar: AppBar(
+        backgroundColor: Colors.green[700],
+        foregroundColor: Colors.white,
+        title: const Text('NutriCampus AI'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout_rounded),
+            tooltip: 'Cerrar sesión',
+            onPressed: _logout,
+          ),
+        ],
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.cloud_off_rounded,
+                  size: 72, color: Colors.grey[400]),
+              const SizedBox(height: 20),
+              const Text(
+                'No pudimos cargar tus datos',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1A1A2E),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _criticalError!,
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: () => _loadData(),
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Reintentar'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 28, vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Banner ámbar cuando hay errores parciales pero la UI sigue siendo útil.
+  Widget _buildWarningBanner() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.amber.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.amber.withOpacity(0.4)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.warning_amber_rounded,
+              color: Colors.amber[800], size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              _warning!,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.amber[900],
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => _loadData(isRefresh: true),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: Text(
+              'Reintentar',
+              style: TextStyle(
+                color: Colors.amber[900],
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSliverAppBar() {
     final hora = TimeOfDay.now().hour;
     String saludo;
@@ -184,6 +372,21 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: Colors.green[700],
       automaticallyImplyLeading: false,
       actions: [
+        // Indicador de refresh en el AppBar
+        if (_refreshing)
+          const Padding(
+            padding: EdgeInsets.only(right: 8),
+            child: Center(
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2.5,
+                ),
+              ),
+            ),
+          ),
         IconButton(
           icon: const Icon(Icons.logout_rounded, color: Colors.white),
           tooltip: 'Cerrar sesión',
@@ -191,6 +394,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ],
       flexibleSpace: FlexibleSpaceBar(
+        // Sin `title` aquí — antes se traslapaba con el saludo cuando se expandía.
+        // Cuando la barra colapsa, queda solo la franja verde con los iconos a la derecha.
         background: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -225,27 +430,30 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       const SizedBox(width: 14),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            saludo,
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.85),
-                              fontSize: 14,
-                              fontWeight: FontWeight.w400,
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              saludo,
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.85),
+                                fontSize: 14,
+                                fontWeight: FontWeight.w400,
+                              ),
                             ),
-                          ),
-                          Text(
-                            _nombre ?? 'Estudiante',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 0.2,
+                            Text(
+                              _nombre ?? 'Estudiante',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.2,
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -264,15 +472,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ),
-        title: const Text(
-          'NutriCampus AI',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
-          ),
-        ),
-        titlePadding: const EdgeInsets.only(left: 20, bottom: 16),
         collapseMode: CollapseMode.parallax,
       ),
     );
@@ -390,8 +589,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ...preview.map((m) => _MateriaPreviewTile(materia: m)),
         if (_materias.length > 3)
           TextButton(
-            onPressed: () =>
-                Navigator.pushNamed(context, '/materias').then((_) => _loadData()),
+            onPressed: () => Navigator.pushNamed(context, '/materias')
+                .then((_) => _loadData()),
             child: Text(
               'Ver todas (${_materias.length})',
               style: const TextStyle(color: Colors.green),
