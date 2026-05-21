@@ -5,8 +5,6 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Tipos de error que distinguimos a nivel de UI.
-/// Las pantallas pueden usar esto para decidir cómo reaccionar
-/// (ej. en 'unauthorized' → cerrar sesión y volver a /login).
 enum ApiErrorType { timeout, network, unauthorized, notFound, server, unknown }
 
 class ApiService {
@@ -14,7 +12,7 @@ class ApiService {
   static const Duration _timeout = Duration(seconds: 15);
   static String? _cachedToken;
 
-  // ── Token (sin cambios) ──────────────────────────────────────
+  // ── Token ────────────────────────────────────────────────────
 
   static Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
@@ -41,13 +39,6 @@ class ApiService {
   }
 
   // ── Helper central ────────────────────────────────────────────
-  //
-  // Centraliza: timeouts, headers (con/sin auth), decodificación
-  // segura y categorización de errores.
-  //
-  // Devuelve siempre Map con las claves:
-  //   { success: bool, data?, error?, errorType?, statusCode? }
-  // El contrato es compatible con el código viejo (success/error).
 
   static Future<Map<String, dynamic>> _request({
     required String method,
@@ -96,9 +87,7 @@ class ApiService {
           throw ArgumentError('Método HTTP no soportado: $method');
       }
 
-      // ── Éxito ──────────────────────────────────────────────
       if (successCodes.contains(response.statusCode)) {
-        // 204 No Content → no hay body que decodificar
         if (response.statusCode == 204 || response.body.isEmpty) {
           return {'success': true, 'statusCode': response.statusCode};
         }
@@ -109,7 +98,6 @@ class ApiService {
         };
       }
 
-      // ── Mapeo de errores HTTP ──────────────────────────────
       final decoded = _safeDecode(response.body);
       final detail = (decoded is Map && decoded['detail'] is String)
           ? decoded['detail'] as String
@@ -129,7 +117,6 @@ class ApiService {
             'error': detail ?? 'Recurso no encontrado',
             'errorType': ApiErrorType.notFound,
             'statusCode': 404,
-            // Compat: el código viejo usaba esta bandera en getPerfil
             'notFound': true,
           };
         case 400:
@@ -183,10 +170,6 @@ class ApiService {
       return null;
     }
   }
-
-  // ─────────────────────────────────────────────────────────────
-  // ENDPOINTS — ahora son thin wrappers sobre _request()
-  // ─────────────────────────────────────────────────────────────
 
   // ── Autenticación ────────────────────────────────────────────
 
@@ -243,6 +226,7 @@ class ApiService {
     String? dieta,
     int? caloriasDiarias,
     String? condicionesMedicas,
+    String? fechaNacimiento, // formato "YYYY-MM-DD" o null
   }) {
     return _request(
       method: 'POST',
@@ -258,6 +242,7 @@ class ApiService {
         'dieta': dieta,
         'calorias_diarias': caloriasDiarias,
         'condiciones_medicas': condicionesMedicas,
+        'fecha_nacimiento': fechaNacimiento,
       },
       successCodes: {201},
     );

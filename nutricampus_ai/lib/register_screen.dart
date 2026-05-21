@@ -39,28 +39,44 @@ class _RegisterScreenState extends State<RegisterScreen> {
       password: _passwordController.text,
     );
 
-    if (result['success']) {
-      final loginResult = await ApiService.login(
-        correo: _emailController.text.trim(),
-        password: _passwordController.text,
-      );
+    if (!mounted) return;
 
+    if (!result['success']) {
       setState(() => _isLoading = false);
-      if (!mounted) return;
-
-      if (loginResult['success']) {
-        Navigator.pushReplacementNamed(context, '/perfil');
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(loginResult['error']), backgroundColor: Colors.red),
-        );
-      }
-    } else {
-      setState(() => _isLoading = false);
-      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result['error']), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text(result['error'] as String? ?? 'Error al registrarse'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
       );
+      return;
+    }
+
+    // Registro exitoso → intentamos login automático
+    final loginResult = await ApiService.login(
+      correo: _emailController.text.trim(),
+      password: _passwordController.text,
+    );
+
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+
+    if (loginResult['success']) {
+      Navigator.pushReplacementNamed(context, '/perfil');
+    } else {
+      // El registro funcionó pero el login automático falló.
+      // Lo mandamos a /login para que entre manualmente.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Cuenta creada. ${loginResult['error'] as String? ?? 'Inicia sesión manualmente.'}',
+          ),
+          backgroundColor: Colors.orange[800],
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      Navigator.pushReplacementNamed(context, '/login');
     }
   }
 
@@ -101,6 +117,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 TextFormField(
                   controller: _nameController,
                   textCapitalization: TextCapitalization.words,
+                  enabled: !_isLoading,
                   decoration: InputDecoration(
                     labelText: 'Nombre completo',
                     prefixIcon: const Icon(Icons.badge_outlined),
@@ -115,6 +132,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 TextFormField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
+                  enabled: !_isLoading,
                   decoration: InputDecoration(
                     labelText: 'Correo Institucional',
                     prefixIcon: const Icon(Icons.email_outlined),
@@ -129,6 +147,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 TextFormField(
                   controller: _passwordController,
                   obscureText: _obscurePassword,
+                  enabled: !_isLoading,
                   decoration: InputDecoration(
                     labelText: 'Contraseña',
                     prefixIcon: const Icon(Icons.lock_outline),
@@ -136,8 +155,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       icon: Icon(_obscurePassword
                           ? Icons.visibility_off
                           : Icons.visibility),
-                      onPressed: () =>
-                          setState(() => _obscurePassword = !_obscurePassword),
+                      onPressed: _isLoading
+                          ? null
+                          : () => setState(
+                              () => _obscurePassword = !_obscurePassword),
                     ),
                     border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12)),
@@ -150,6 +171,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 TextFormField(
                   controller: _confirmPasswordController,
                   obscureText: _obscureConfirm,
+                  enabled: !_isLoading,
                   decoration: InputDecoration(
                     labelText: 'Confirmar Contraseña',
                     prefixIcon: const Icon(Icons.lock_outline),
@@ -157,8 +179,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       icon: Icon(_obscureConfirm
                           ? Icons.visibility_off
                           : Icons.visibility),
-                      onPressed: () =>
-                          setState(() => _obscureConfirm = !_obscureConfirm),
+                      onPressed: _isLoading
+                          ? null
+                          : () => setState(
+                              () => _obscureConfirm = !_obscureConfirm),
                     ),
                     border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12)),
@@ -196,7 +220,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 const SizedBox(height: 20),
 
                 TextButton(
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: _isLoading ? null : () => Navigator.pop(context),
                   child: const Text('¿Ya tienes cuenta? Inicia sesión'),
                 ),
                 const SizedBox(height: 20),

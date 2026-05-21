@@ -84,6 +84,7 @@ class MateriasScreen extends StatefulWidget {
 class _MateriasScreenState extends State<MateriasScreen> {
   List<Materia> _materias = [];
   bool _isLoading = false;
+  String? _loadError;
 
   @override
   void initState() {
@@ -91,14 +92,50 @@ class _MateriasScreenState extends State<MateriasScreen> {
     _loadMaterias();
   }
 
-  Future<void> _loadMaterias() async {
-    setState(() => _isLoading = true);
+  Future<void> _loadMaterias({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _isLoading = true;
+        _loadError = null;
+      });
+    }
+
     final result = await ApiService.getMaterias();
-    setState(() => _isLoading = false);
+
+    if (!mounted) return;
+
+    // Token expirado → logout
+    if (result['errorType'] == ApiErrorType.unauthorized) {
+      await _forceLogout();
+      return;
+    }
+
     if (result['success']) {
       final List data = result['data'];
-      setState(() => _materias = data.map((m) => Materia.fromJson(m)).toList());
+      setState(() {
+        _materias = data.map((m) => Materia.fromJson(m)).toList();
+        _isLoading = false;
+        _loadError = null;
+      });
+    } else {
+      setState(() {
+        _isLoading = false;
+        _loadError = result['error'] as String? ?? 'No se pudieron cargar las materias';
+      });
     }
+  }
+
+  Future<void> _forceLogout() async {
+    await ApiService.clearToken();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Tu sesión expiró. Inicia sesión de nuevo.'),
+        backgroundColor: Colors.orange[800],
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
   }
 
   String _formatTime(TimeOfDay time) {
@@ -130,25 +167,38 @@ class _MateriasScreenState extends State<MateriasScreen> {
     );
 
     if (confirm != true) {
-      await _loadMaterias();
+      // Forzar rebuild para que el Dismissible "regrese" si lo arrastraron
+      setState(() {});
       return;
     }
 
     final result = await ApiService.deleteMateria(materia.id!);
+
+    if (!mounted) return;
+
+    if (result['errorType'] == ApiErrorType.unauthorized) {
+      await _forceLogout();
+      return;
+    }
+
     if (result['success']) {
       setState(() => _materias.removeAt(index));
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Materia eliminada'), backgroundColor: Colors.red),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Materia eliminada'),
+          backgroundColor: Colors.green, // antes estaba en rojo (era un éxito mostrado como error)
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     } else {
-      await _loadMaterias();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result['error']), backgroundColor: Colors.red),
-        );
-      }
+      await _loadMaterias(silent: true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['error'] as String? ?? 'No se pudo eliminar'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -332,6 +382,19 @@ class _MateriasScreenState extends State<MateriasScreen> {
                           return;
                         }
 
+                        // Validar que hora_fin > hora_inicio
+                        final minInicio = horaInicio.hour * 60 + horaInicio.minute;
+                        final minFin = horaFin.hour * 60 + horaFin.minute;
+                        if (minFin <= minInicio) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('La hora de fin debe ser posterior a la de inicio'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          return;
+                        }
+
                         Navigator.pop(context);
 
                         final horaInicioStr = _formatTime(horaInicio);
@@ -358,20 +421,32 @@ class _MateriasScreenState extends State<MateriasScreen> {
                                 horaInicio: horaInicioStr, horaFin: horaFinStr,
                               );
 
+                        if (!mounted) return;
+
+                        if (result['errorType'] == ApiErrorType.unauthorized) {
+                          await _forceLogout();
+                          return;
+                        }
+
                         if (result['success']) {
-                          await _loadMaterias();
+                          await _loadMaterias(silent: true);
                           if (mounted) {
                             ScaffoldMessenger.of(screenContext).showSnackBar(
                               SnackBar(
                                 content: Text(materia != null ? 'Materia actualizada' : 'Materia guardada'),
                                 backgroundColor: Colors.green,
+                                behavior: SnackBarBehavior.floating,
                               ),
                             );
                           }
                         } else {
                           if (mounted) {
                             ScaffoldMessenger.of(screenContext).showSnackBar(
-                              SnackBar(content: Text(result['error']), backgroundColor: Colors.red),
+                              SnackBar(
+                                content: Text(result['error']),
+                                backgroundColor: Colors.red,
+                                behavior: SnackBarBehavior.floating,
+                              ),
                             );
                           }
                         }
@@ -468,155 +543,222 @@ class _MateriasScreenState extends State<MateriasScreen> {
         icon: const Icon(Icons.add),
         label: const Text('Agregar Materia'),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.green))
-          : _materias.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.menu_book_outlined, size: 80, color: Colors.grey.shade200),
-                      const SizedBox(height: 20),
-                      const Text('Aún no tienes materias',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Registra tus materias del semestre\npara organizar tu horario',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
-                      ),
-                      const SizedBox(height: 32),
-                      ElevatedButton.icon(
-                        onPressed: () => _showMateriaDialog(),
-                        icon: const Icon(Icons.add),
-                        label: const Text('Agregar mi primera materia'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _materias.length,
-                  itemBuilder: (context, index) {
-                    final materia = _materias[index];
-                    final color = hexToColor(materia.color);
+      body: _buildBody(),
+    );
+  }
 
-                    return Dismissible(
-                      key: Key('${materia.id}_${materia.nombre}'),
-                      direction: DismissDirection.endToStart,
-                      background: Container(
-                        alignment: Alignment.centerRight,
-                        padding: const EdgeInsets.only(right: 20),
-                        margin: const EdgeInsets.only(bottom: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.red.shade100,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: const Icon(Icons.delete_outline, color: Colors.red),
-                      ),
-                      confirmDismiss: (_) async => false, // El dialog maneja la confirmacion
-                      onDismissed: (_) {},
-                      child: GestureDetector(
-                        onTap: () => _showMateriaDialog(materia: materia),
-                        onLongPress: () => _deleteMateria(materia, index),
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.06),
-                                blurRadius: 8,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 6, height: 90,
-                                decoration: BoxDecoration(
-                                  color: color,
-                                  borderRadius: const BorderRadius.only(
-                                    topLeft: Radius.circular(16),
-                                    bottomLeft: Radius.circular(16),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              Container(
-                                width: 46, height: 46,
-                                decoration: BoxDecoration(
-                                  color: color.withOpacity(0.15),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: Center(
-                                  child: Text(materia.nombre[0].toUpperCase(),
-                                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
-                                ),
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(materia.nombre,
-                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                                    const SizedBox(height: 4),
-                                    Row(children: [
-                                      Icon(Icons.calendar_today_outlined, size: 13, color: Colors.grey.shade500),
-                                      const SizedBox(width: 4),
-                                      Text(materia.diasTexto,
-                                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                                      const SizedBox(width: 12),
-                                      Icon(Icons.access_time, size: 13, color: Colors.grey.shade500),
-                                      const SizedBox(width: 4),
-                                      Text('${_formatTime(materia.horaInicio)} - ${_formatTime(materia.horaFin)}',
-                                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                                    ]),
-                                    if (materia.aula != null || materia.profesor != null)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 4),
-                                        child: Row(children: [
-                                          if (materia.aula != null) ...[
-                                            Icon(Icons.room_outlined, size: 13, color: Colors.grey.shade500),
-                                            const SizedBox(width: 4),
-                                            Text(materia.aula!,
-                                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                                            const SizedBox(width: 12),
-                                          ],
-                                          if (materia.profesor != null) ...[
-                                            Icon(Icons.person_outline, size: 13, color: Colors.grey.shade500),
-                                            const SizedBox(width: 4),
-                                            Expanded(
-                                              child: Text(materia.profesor!,
-                                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                                                  overflow: TextOverflow.ellipsis),
-                                            ),
-                                          ],
-                                        ]),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.only(right: 12),
-                                child: Icon(Icons.chevron_right, color: Colors.grey.shade400),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  },
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator(color: Colors.green));
+    }
+
+    if (_loadError != null) {
+      return _buildErrorState();
+    }
+
+    if (_materias.isEmpty) {
+      return _buildEmptyState();
+    }
+
+    // Lista normal con pull-to-refresh
+    return RefreshIndicator(
+      color: Colors.green,
+      onRefresh: () => _loadMaterias(silent: true),
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _materias.length,
+        itemBuilder: (context, index) {
+          final materia = _materias[index];
+          final color = hexToColor(materia.color);
+
+          return Dismissible(
+            key: Key('${materia.id}_${materia.nombre}'),
+            direction: DismissDirection.endToStart,
+            background: Container(
+              alignment: Alignment.centerRight,
+              padding: const EdgeInsets.only(right: 20),
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: Colors.red.shade100,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Icon(Icons.delete_outline, color: Colors.red),
+            ),
+            confirmDismiss: (_) async {
+              await _deleteMateria(materia, index);
+              return false; // ya manejamos el borrado, no dejes que Dismissible lo quite
+            },
+            child: GestureDetector(
+              onTap: () => _showMateriaDialog(materia: materia),
+              onLongPress: () => _deleteMateria(materia, index),
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.06),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
                 ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 6, height: 90,
+                      decoration: BoxDecoration(
+                        color: color,
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(16),
+                          bottomLeft: Radius.circular(16),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Container(
+                      width: 46, height: 46,
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Text(materia.nombre[0].toUpperCase(),
+                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(materia.nombre,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                          const SizedBox(height: 4),
+                          Row(children: [
+                            Icon(Icons.calendar_today_outlined, size: 13, color: Colors.grey.shade500),
+                            const SizedBox(width: 4),
+                            Text(materia.diasTexto,
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                            const SizedBox(width: 12),
+                            Icon(Icons.access_time, size: 13, color: Colors.grey.shade500),
+                            const SizedBox(width: 4),
+                            Text('${_formatTime(materia.horaInicio)} - ${_formatTime(materia.horaFin)}',
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                          ]),
+                          if (materia.aula != null || materia.profesor != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Row(children: [
+                                if (materia.aula != null) ...[
+                                  Icon(Icons.room_outlined, size: 13, color: Colors.grey.shade500),
+                                  const SizedBox(width: 4),
+                                  Text(materia.aula!,
+                                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                  const SizedBox(width: 12),
+                                ],
+                                if (materia.profesor != null) ...[
+                                  Icon(Icons.person_outline, size: 13, color: Colors.grey.shade500),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(materia.profesor!,
+                                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                        overflow: TextOverflow.ellipsis),
+                                  ),
+                                ],
+                              ]),
+                            ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 12),
+                      child: Icon(Icons.chevron_right, color: Colors.grey.shade400),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.cloud_off_rounded, size: 72, color: Colors.grey[400]),
+            const SizedBox(height: 20),
+            const Text(
+              'No pudimos cargar tus materias',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1A1A2E),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _loadError!,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: () => _loadMaterias(),
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Reintentar'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.menu_book_outlined, size: 80, color: Colors.grey.shade200),
+          const SizedBox(height: 20),
+          const Text('Aún no tienes materias',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
+          const SizedBox(height: 8),
+          Text(
+            'Registra tus materias del semestre\npara organizar tu horario',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+          ),
+          const SizedBox(height: 32),
+          ElevatedButton.icon(
+            onPressed: () => _showMateriaDialog(),
+            icon: const Icon(Icons.add),
+            label: const Text('Agregar mi primera materia'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

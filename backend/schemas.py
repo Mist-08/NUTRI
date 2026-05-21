@@ -54,10 +54,11 @@ class PerfilCreate(BaseModel):
     sexo:               str
     nivel_actividad:    str
     objetivo:           str
-    alergias:           Optional[str] = None
-    dieta:              Optional[str] = None
-    calorias_diarias:   Optional[int] = None
+    alergias:           Optional[str]  = None
+    dieta:              Optional[str]  = None
+    calorias_diarias:   Optional[int]  = None
     condiciones_medicas: Optional[str] = None
+    fecha_nacimiento:   Optional[date] = None  # nullable para perfiles legacy
 
 
 class PerfilResponse(PerfilCreate):
@@ -67,6 +68,15 @@ class PerfilResponse(PerfilCreate):
 
     class Config:
         from_attributes = True
+
+    @field_validator('fecha_nacimiento', mode='before')
+    @classmethod
+    def convert_fecha_nacimiento(cls, v):
+        # Si viene como datetime.date desde SQLAlchemy → serializar a "YYYY-MM-DD"
+        # Si ya es string o None, dejar tal cual.
+        if isinstance(v, date):
+            return v.strftime('%Y-%m-%d')
+        return v
 
 
 # ── Materias ──────────────────────────────────────────────────────
@@ -133,8 +143,6 @@ class EventoResponse(EventoCreate):
     @field_validator('fecha', mode='before')
     @classmethod
     def convert_fecha(cls, v):
-        # date y datetime → "YYYY-MM-DD"
-        # (datetime es subclase de date, así que un solo check cubre ambos)
         if isinstance(v, date):
             return v.strftime('%Y-%m-%d')
         return v

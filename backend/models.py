@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text, Time
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text, Time, Date
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -29,11 +29,12 @@ class PerfilNutricional(Base):
     id_perfil             = Column(Integer, primary_key=True, index=True)
     id_usuario            = Column(Integer, ForeignKey("usuarios.id_usuario"), unique=True, nullable=False)
     edad                  = Column(Integer)
+    fecha_nacimiento      = Column(Date, nullable=True)  # nullable para perfiles legacy
     peso                  = Column(Float)       # en kg
-    altura                = Column(Float)       # en metros
+    altura                = Column(Float)       # en cm (el frontend usa cm; la fórmula IMC divide entre 100)
     sexo                  = Column(String(20))
-    nivel_actividad       = Column(String(50))  # Bajo, Moderado, Alto
-    objetivo              = Column(String(50))  # Mantener, Bajar peso, Subir masa
+    nivel_actividad       = Column(String(50))  # Bajo, Moderado, Alto, Muy alto
+    objetivo              = Column(String(50))  # Mantener, Bajar peso, Subir masa, Mejorar rendimiento
     alergias              = Column(Text, nullable=True)
     dieta                 = Column(String(50), nullable=True)
     calorias_diarias      = Column(Integer, nullable=True)

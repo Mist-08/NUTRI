@@ -34,17 +34,20 @@ class _LoginScreenState extends State<LoginScreen> {
       password: _passwordController.text,
     );
 
-    setState(() => _isLoading = false);
-
     if (!mounted) return;
+    setState(() => _isLoading = false);
 
     if (result['success']) {
       Navigator.pushReplacementNamed(context, '/home');
     } else {
+      // El api_service ya devuelve mensajes específicos:
+      // "Correo o contraseña incorrectos", "El servidor tardó demasiado",
+      // "Sin conexión...", etc. Solo lo mostramos tal cual.
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(result['error']),
+          content: Text(result['error'] as String? ?? 'Error al iniciar sesión'),
           backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
         ),
       );
     }
@@ -75,6 +78,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 TextFormField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
+                  enabled: !_isLoading,
                   decoration: InputDecoration(
                     labelText: 'Correo Institucional',
                     prefixIcon: const Icon(Icons.email_outlined),
@@ -93,6 +97,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 TextFormField(
                   controller: _passwordController,
                   obscureText: _obscurePassword,
+                  enabled: !_isLoading,
                   decoration: InputDecoration(
                     labelText: 'Contraseña',
                     prefixIcon: const Icon(Icons.lock_outline),
@@ -100,8 +105,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       icon: Icon(_obscurePassword
                           ? Icons.visibility_off
                           : Icons.visibility),
-                      onPressed: () =>
-                          setState(() => _obscurePassword = !_obscurePassword),
+                      onPressed: _isLoading
+                          ? null
+                          : () => setState(
+                              () => _obscurePassword = !_obscurePassword),
                     ),
                     border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12)),
@@ -142,7 +149,9 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 20),
 
                 TextButton(
-                  onPressed: () => Navigator.pushNamed(context, '/register'),
+                  onPressed: _isLoading
+                      ? null
+                      : () => Navigator.pushNamed(context, '/register'),
                   child: const Text('¿No tienes cuenta? Regístrate aquí'),
                 ),
               ],
