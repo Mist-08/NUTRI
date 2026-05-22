@@ -357,4 +357,49 @@ class ApiService {
         path: '/eventos/$id',
         successCodes: {204},
       );
+
+  // ── Recomendaciones ───────────────────────────────────────────
+
+  /// Devuelve el menú del día. Si no existe lo genera automáticamente.
+  static Future<Map<String, dynamic>> getMenuHoy({String? fecha}) => _request(
+        method: 'GET',
+        path: '/recommendations/today${fecha != null ? '?fecha=$fecha' : ''}',
+      );
+
+  /// Fuerza la generación de un menú nuevo (reemplaza el existente).
+  static Future<Map<String, dynamic>> generateMenu({String? fecha}) => _request(
+        method: 'POST',
+        path: '/recommendations/generate',
+        body: fecha != null ? {'fecha': fecha} : {},
+        successCodes: {200, 201},
+      );
+
+  // ── Gestión de menús ──────────────────────────────────────────
+
+  /// Historial de menús de los últimos [dias] días.
+  static Future<Map<String, dynamic>> getHistorialMenus({int dias = 14}) => _request(
+        method: 'GET',
+        path: '/menus/history?dias=$dias',
+      );
+
+  /// Marca o desmarca un menú como consumido.
+  static Future<Map<String, dynamic>> markConsumed(int idMenu, {bool consumido = true}) =>
+      _request(
+        method: 'POST',
+        path: '/menus/$idMenu/consumed',
+        body: {'consumido': consumido},
+      );
+
+  /// Elimina un menú del historial.
+  static Future<Map<String, dynamic>> deleteMenu(int idMenu) => _request(
+        method: 'DELETE',
+        path: '/menus/$idMenu',
+        successCodes: {204},
+      );
+
+  // ── Estadísticas ──────────────────────────────────────────────
+
+  /// Estadísticas nutricionales de los últimos 7 días.
+  static Future<Map<String, dynamic>> getNutritionStats() =>
+      _request(method: 'GET', path: '/nutrition/stats');
 }

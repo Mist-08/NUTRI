@@ -562,6 +562,14 @@ class _HomeScreenState extends State<HomeScreen> {
         gradient: [const Color(0xFFE65100), const Color(0xFFFFA726)],
         onTap: _navigateToHorario,
       ),
+      _NavCard(
+        title: 'Recomendación',
+        subtitle: _perfil == null ? 'Completa tu perfil' : 'Menú del día',
+        icon: Icons.restaurant_rounded,
+        gradient: [const Color(0xFF6A1B9A), const Color(0xFFBA68C8)],
+        badge: _perfil == null ? '!' : null,
+        onTap: () => Navigator.pushNamed(context, '/recomendacion'),
+      ),
     ];
 
     return Column(
@@ -574,9 +582,12 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: cards[2],
+        Row(
+          children: [
+            Expanded(child: cards[2]),
+            const SizedBox(width: 12),
+            Expanded(child: cards[3]),
+          ],
         ),
       ],
     );

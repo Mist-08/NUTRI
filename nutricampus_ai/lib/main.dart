@@ -6,6 +6,8 @@ import 'home_screen.dart';
 import 'nutritional_profile_screen.dart';
 import 'materias_screen.dart';
 import 'horario_screen.dart';
+import 'recommendation_screen.dart';
+import 'nutrition_stats_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,12 +32,14 @@ class MyApp extends StatelessWidget {
       ),
       initialRoute: '/login',
       routes: {
-        '/login':        (context) => const LoginScreen(),
-        '/register':     (context) => const RegisterScreen(),
-        '/home':         (context) => const HomeScreen(),
-        '/perfil':       (context) => const NutritionalProfileScreen(),
-        '/perfil_editar':(context) => const NutritionalProfileScreen(isEditing: true),
-        '/materias':     (context) => const MateriasScreen(),
+        '/login':                  (context) => const LoginScreen(),
+        '/register':               (context) => const RegisterScreen(),
+        '/home':                   (context) => const HomeScreen(),
+        '/perfil':                 (context) => const NutritionalProfileScreen(),
+        '/perfil_editar':          (context) => const NutritionalProfileScreen(isEditing: true),
+        '/materias':               (context) => const MateriasScreen(),
+        '/recomendacion':          (context) => const RecommendationScreen(),
+        '/estadisticas_nutricion': (context) => const NutritionStatsScreen(),
       },
       onGenerateRoute: (settings) {
         if (settings.name == '/horario') {
