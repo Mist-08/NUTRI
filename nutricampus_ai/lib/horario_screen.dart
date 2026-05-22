@@ -241,7 +241,7 @@ class _HorarioScreenState extends State<HorarioScreen> {
                               duration: const Duration(milliseconds: 200),
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               decoration: BoxDecoration(
-                                color: isSelected ? c : c.withOpacity(0.08),
+                                color: isSelected ? c : c.withValues(alpha: 0.08),
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(color: c, width: isSelected ? 2 : 1),
                               ),
@@ -592,7 +592,7 @@ class _HorarioScreenState extends State<HorarioScreen> {
           boxShadow: selected
               ? [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.06),
+                    color: Colors.black.withValues(alpha: 0.06),
                     blurRadius: 6,
                     offset: const Offset(0, 2),
                   ),
@@ -681,7 +681,7 @@ class _HorarioScreenState extends State<HorarioScreen> {
                               fontSize: 11,
                               color: isSelected
                                   ? (isWeekendDay ? Colors.amber.shade800 : Colors.green)
-                                  : (isWeekendDay ? Colors.white.withOpacity(0.55) : Colors.white70),
+                                  : (isWeekendDay ? Colors.white.withValues(alpha: 0.55) : Colors.white70),
                               fontWeight: FontWeight.w600,
                             )),
                             const SizedBox(height: 4),
@@ -690,7 +690,7 @@ class _HorarioScreenState extends State<HorarioScreen> {
                               fontWeight: FontWeight.bold,
                               color: isSelected
                                   ? (isWeekendDay ? Colors.amber.shade800 : Colors.green)
-                                  : (isWeekendDay ? Colors.white.withOpacity(0.7) : Colors.white),
+                                  : (isWeekendDay ? Colors.white.withValues(alpha: 0.7) : Colors.white),
                             )),
                             const SizedBox(height: 4),
                             Row(
@@ -768,10 +768,10 @@ class _HorarioScreenState extends State<HorarioScreen> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 14, vertical: 12),
                           decoration: BoxDecoration(
-                            color: Colors.amber.withOpacity(0.15),
+                            color: Colors.amber.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(12),
                             border:
-                                Border.all(color: Colors.amber.withOpacity(0.4)),
+                                Border.all(color: Colors.amber.withValues(alpha: 0.4)),
                           ),
                           child: Row(
                             children: [
@@ -960,10 +960,10 @@ class _HorarioScreenState extends State<HorarioScreen> {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: color.withOpacity(0.3)),
+            border: Border.all(color: color.withValues(alpha: 0.3)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.04),
+                color: Colors.black.withValues(alpha: 0.04),
                 blurRadius: 6,
                 offset: const Offset(0, 2),
               ),
@@ -986,7 +986,7 @@ class _HorarioScreenState extends State<HorarioScreen> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
+                  color: color.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(icon, color: color, size: 20),
@@ -1010,7 +1010,7 @@ class _HorarioScreenState extends State<HorarioScreen> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: color.withOpacity(0.1),
+                            color: color.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
@@ -1072,7 +1072,7 @@ class _HorarioScreenState extends State<HorarioScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 6, offset: const Offset(0, 2))],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6, offset: const Offset(0, 2))],
       ),
       child: Row(children: [
         Container(
@@ -1085,7 +1085,7 @@ class _HorarioScreenState extends State<HorarioScreen> {
         const SizedBox(width: 14),
         Container(
           width: 42, height: 42,
-          decoration: BoxDecoration(color: color.withOpacity(0.15), shape: BoxShape.circle),
+          decoration: BoxDecoration(color: color.withValues(alpha: 0.15), shape: BoxShape.circle),
           child: Center(
             child: Text(m.nombre[0].toUpperCase(),
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: color)),
@@ -1138,8 +1138,8 @@ class _HorarioScreenState extends State<HorarioScreen> {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: color.withOpacity(0.3)),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 6, offset: const Offset(0, 2))],
+            border: Border.all(color: color.withValues(alpha: 0.3)),
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6, offset: const Offset(0, 2))],
           ),
           child: Row(children: [
             Container(
@@ -1152,7 +1152,7 @@ class _HorarioScreenState extends State<HorarioScreen> {
             const SizedBox(width: 14),
             Container(
               padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+              decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
               child: Icon(icon, color: color, size: 20),
             ),
             const SizedBox(width: 12),
@@ -1163,7 +1163,7 @@ class _HorarioScreenState extends State<HorarioScreen> {
                 Row(children: [
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
+                    decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
                     child: Text(e.tipoEvento,
                         style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.bold)),
                   ),

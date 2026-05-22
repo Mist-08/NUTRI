@@ -134,7 +134,9 @@ int _calcularCalorias({
   required String? sexo, required String? actividad, String? objetivo,
 }) {
   if (edad == null || peso == null || altura == null ||
-      sexo == null || actividad == null) return 0;
+      sexo == null || actividad == null) {
+    return 0;
+  }
 
   // Paso 1: TMB (Mifflin-St Jeor)
   double tmb = (sexo == 'Masculino')
@@ -282,7 +284,7 @@ class _BirthDatePickerSheetState extends State<_BirthDatePickerSheet> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [_softGreen, _pastelBlue.withOpacity(0.4)],
+                colors: [_softGreen, _pastelBlue.withValues(alpha: 0.4)],
               ),
               borderRadius: BorderRadius.circular(16),
             ),
@@ -1041,7 +1043,7 @@ class _ProfileWizardState extends State<_ProfileWizard> {
             width: isSelected ? 2 : 1,
           ),
           boxShadow: isSelected
-              ? [BoxShadow(color: color.withOpacity(0.4), blurRadius: 8, offset: const Offset(0, 3))]
+              ? [BoxShadow(color: color.withValues(alpha: 0.4), blurRadius: 8, offset: const Offset(0, 3))]
               : null,
         ),
         child: Row(
@@ -1083,7 +1085,7 @@ class _ProfileWizardState extends State<_ProfileWizard> {
             width: isSelected ? 2 : 1,
           ),
           boxShadow: isSelected
-              ? [BoxShadow(color: color.withOpacity(0.45), blurRadius: 10, offset: const Offset(0, 4))]
+              ? [BoxShadow(color: color.withValues(alpha: 0.45), blurRadius: 10, offset: const Offset(0, 4))]
               : null,
         ),
         child: Row(
@@ -1198,7 +1200,7 @@ class _ProfileWizardState extends State<_ProfileWizard> {
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
       decoration: BoxDecoration(
         color: Colors.white,
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, -4))],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, -4))],
       ),
       child: SafeArea(
         top: false,
@@ -1597,9 +1599,9 @@ class _EditProfileViewState extends State<_EditProfileView> {
                   Container(
                     width: 72, height: 72,
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
+                      color: Colors.white.withValues(alpha: 0.2),
                       shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white.withOpacity(0.4), width: 2),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.4), width: 2),
                     ),
                     child: Center(
                       child: Text(initials,
@@ -1620,7 +1622,7 @@ class _EditProfileViewState extends State<_EditProfileView> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.25),
+                              color: Colors.white.withValues(alpha: 0.25),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Row(
@@ -1643,7 +1645,7 @@ class _EditProfileViewState extends State<_EditProfileView> {
                               const SizedBox(width: 4),
                               Text('$_calorias kcal / día',
                                   style: TextStyle(
-                                    color: Colors.white.withOpacity(0.9), fontSize: 12, fontWeight: FontWeight.w500,
+                                    color: Colors.white.withValues(alpha: 0.9), fontSize: 12, fontWeight: FontWeight.w500,
                                   )),
                             ],
                           ),
@@ -1686,9 +1688,9 @@ class _EditProfileViewState extends State<_EditProfileView> {
       margin: const EdgeInsets.only(top: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.amber.withOpacity(0.15),
+        color: Colors.amber.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.amber.withOpacity(0.4)),
+        border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
       ),
       child: Row(
         children: [
@@ -2218,16 +2220,16 @@ class _BmiResultCard extends StatelessWidget {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft, end: Alignment.bottomRight,
-          colors: [color.withOpacity(0.15), color.withOpacity(0.05)],
+          colors: [color.withValues(alpha: 0.15), color.withValues(alpha: 0.05)],
         ),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.3), width: 1.5),
+        border: Border.all(color: color.withValues(alpha: 0.3), width: 1.5),
       ),
       child: Row(
         children: [
           Container(
             width: 64, height: 64,
-            decoration: BoxDecoration(color: color.withOpacity(0.15), shape: BoxShape.circle),
+            decoration: BoxDecoration(color: color.withValues(alpha: 0.15), shape: BoxShape.circle),
             child: Icon(Icons.monitor_weight_outlined, color: color, size: 32),
           ),
           const SizedBox(width: 16),
@@ -2290,7 +2292,7 @@ class _CaloriesPreviewCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: _softGreen,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _primaryGreen.withOpacity(0.2)),
+        border: Border.all(color: _primaryGreen.withValues(alpha: 0.2)),
       ),
       child: Row(
         children: [
@@ -2674,7 +2676,7 @@ class _MultiSelectSheetState extends State<_MultiSelectSheet> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: widget.accentColor.withOpacity(0.15),
+                  color: widget.accentColor.withValues(alpha: 0.15),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(widget.icon, color: widget.accentColor, size: 22),

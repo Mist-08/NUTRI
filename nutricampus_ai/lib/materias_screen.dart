@@ -598,7 +598,7 @@ class _MateriasScreenState extends State<MateriasScreen> {
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.06),
+                      color: Colors.black.withValues(alpha: 0.06),
                       blurRadius: 8,
                       offset: const Offset(0, 2),
                     ),
@@ -620,7 +620,7 @@ class _MateriasScreenState extends State<MateriasScreen> {
                     Container(
                       width: 46, height: 46,
                       decoration: BoxDecoration(
-                        color: color.withOpacity(0.15),
+                        color: color.withValues(alpha: 0.15),
                         shape: BoxShape.circle,
                       ),
                       child: Center(

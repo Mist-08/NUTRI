@@ -314,9 +314,9 @@ class _HomeScreenState extends State<HomeScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.amber.withOpacity(0.15),
+        color: Colors.amber.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.amber.withOpacity(0.4)),
+        border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
       ),
       child: Row(
         children: [
@@ -420,7 +420,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         width: 48,
                         height: 48,
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
+                          color: Colors.white.withValues(alpha: 0.2),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
@@ -437,7 +437,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             Text(
                               saludo,
                               style: TextStyle(
-                                color: Colors.white.withOpacity(0.85),
+                                color: Colors.white.withValues(alpha: 0.85),
                                 fontSize: 14,
                                 fontWeight: FontWeight.w400,
                               ),
@@ -463,7 +463,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ? 'Completa tu perfil nutricional para empezar'
                         : 'Tu objetivo: ${_perfil!['objetivo'] ?? '—'}',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.9),
+                      color: Colors.white.withValues(alpha: 0.9),
                       fontSize: 13,
                     ),
                   ),
@@ -627,7 +627,7 @@ class _StatCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.12),
+            color: color.withValues(alpha: 0.12),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -638,7 +638,7 @@ class _StatCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: color, size: 22),
@@ -713,7 +713,7 @@ class _NavCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: gradient[0].withOpacity(0.35),
+              color: gradient[0].withValues(alpha: 0.35),
               blurRadius: 16,
               offset: const Offset(0, 6),
             ),
@@ -726,7 +726,7 @@ class _NavCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
+                    color: Colors.white.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: Icon(icon, color: Colors.white, size: 28),
@@ -773,7 +773,7 @@ class _NavCard extends StatelessWidget {
                   Text(
                     subtitle,
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.85),
+                      color: Colors.white.withValues(alpha: 0.85),
                       fontSize: 12,
                     ),
                   ),
@@ -782,7 +782,7 @@ class _NavCard extends StatelessWidget {
             ),
             Icon(
               Icons.arrow_forward_ios_rounded,
-              color: Colors.white.withOpacity(0.7),
+              color: Colors.white.withValues(alpha: 0.7),
               size: 16,
             ),
           ],
@@ -830,7 +830,7 @@ class _MateriaPreviewTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -871,7 +871,7 @@ class _MateriaPreviewTile extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
+                color: color.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
