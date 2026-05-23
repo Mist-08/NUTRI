@@ -3,17 +3,29 @@ Motor de recomendación nutricional de NutriCampus AI.
 
 Analiza el contexto académico del usuario (exámenes, carga de materias)
 junto con su perfil nutricional para generar un menú diario personalizado.
+
+Arquitectura híbrida (Fase 2):
+- Las REGLAS son la fuente de verdad: filtran restricciones, rankean por
+  contexto, presupuesto y objetivo, y calculan macros sobre datos reales del
+  catálogo de alimentos.
+- GEMINI se llama opcionalmente para refinar la selección y escribir el
+  mensaje personalizado. Si Gemini falla (sin internet, sin cuota, key
+  inválida) el motor de reglas hace toda la chamba sin que el usuario lo note.
+- Los DISLIKES del usuario (tabla menu_feedback) se excluyen al filtrar
+  alimentos disponibles.
 """
 
 import json
 import random
 import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from datetime import date, datetime, timedelta
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
 import models
+from services import ai_recommendation
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +48,7 @@ _CAL_FACTOR = {
     "descanso":   0.90,   # menos actividad física
 }
 
-# Mensajes personalizados por contexto
+# Mensajes personalizados por contexto (fallback si Gemini no responde)
 _MENSAJES = {
     "examen": (
         "Hoy es día de examen. Tu menú está diseñado para mantener tu energía estable "
@@ -98,6 +110,10 @@ class MotorRecomendacion:
 
     def __init__(self, db: Session):
         self.db = db
+        # Flag para saber si la IA participó en la generación (se guarda en el menú)
+        self._ia_used: bool = False
+        # Flag para señalar a Gemini que es regeneración → más variedad
+        self._fresh: bool = False
 
     # ── API pública ────────────────────────────────────────────────
 
@@ -106,24 +122,42 @@ class MotorRecomendacion:
         usuario: models.Usuario,
         perfil: models.PerfilNutricional,
         fecha: Optional[date] = None,
+        fresh: bool = False,
     ) -> models.MenuDiario:
         """
         Genera un MenuDiario completo para el usuario en la fecha indicada
         (por defecto hoy), lo persiste en la BD y lo devuelve.
+
+        Args:
+            fresh: si True, le pide variedad real a Gemini (mezcla candidatos,
+                   sube temperatura). Úsalo en regeneración manual.
         """
         if fecha is None:
             fecha = date.today()
 
+        self._ia_used = False
+        self._fresh = fresh
+
+        # Cargar feedback del usuario para excluir lo que rechazó antes
+        disliked_ids   = self._get_disliked_ids(usuario.id_usuario)
+        disliked_names = self._get_disliked_names(usuario.id_usuario, disliked_ids)
+
         contexto = self._analizar_contexto(usuario.id_usuario, fecha)
-        cal_obj   = self._calcular_calorias_objetivo(perfil, contexto)
+        cal_obj  = self._calcular_calorias_objetivo(perfil, contexto)
 
-        alimentos  = self._obtener_alimentos()
-        disponibles = self._filtrar_por_restricciones(alimentos, perfil)
+        alimentos   = self._obtener_alimentos()
+        disponibles = self._filtrar_por_restricciones(alimentos, perfil, disliked_ids)
 
-        desayuno = self._seleccionar_comida(disponibles, "Desayuno", cal_obj, contexto, perfil)
-        almuerzo = self._seleccionar_comida(disponibles, "Almuerzo", cal_obj, contexto, perfil)
-        cena     = self._seleccionar_comida(disponibles, "Cena",     cal_obj, contexto, perfil)
-        snacks   = self._seleccionar_comida(disponibles, "Snack",    cal_obj, contexto, perfil)
+        # ── Selección paralela de las 4 comidas ────────────────────
+        #
+        # Llamar a Gemini 4 veces en serie tomaría ~4-12 segundos por menú.
+        # Paralelizamos: el tiempo total queda ~igual al de la llamada más
+        # lenta, no la suma. Si alguna comida individual se cuelga más de
+        # GEMINI_TIMEOUT, esa cae al fallback rule-based sin afectar las
+        # otras 3.
+        desayuno, almuerzo, cena, snacks = self._seleccionar_todas_comidas_paralelo(
+            disponibles, cal_obj, contexto, perfil, disliked_names,
+        )
 
         todos_items = desayuno + almuerzo + cena + snacks
         totales = self._calcular_totales(todos_items)
@@ -148,6 +182,12 @@ class MotorRecomendacion:
             else None
         )
 
+        # Mensaje personalizado: intenta Gemini primero, fallback a estático
+        mensaje = self._generar_mensaje(
+            perfil, contexto, costo_total, dentro_ppto,
+            {"Desayuno": desayuno, "Almuerzo": almuerzo, "Cena": cena, "Snack": snacks},
+        )
+
         menu = models.MenuDiario(
             id_usuario           = usuario.id_usuario,
             fecha                = fecha,
@@ -162,17 +202,44 @@ class MotorRecomendacion:
             cena                 = json.dumps([self._alimento_a_dict(a) for a in cena],     ensure_ascii=False),
             snacks               = json.dumps([self._alimento_a_dict(a) for a in snacks],   ensure_ascii=False),
             contexto             = json.dumps(contexto, ensure_ascii=False),
-            mensaje              = self._generar_mensaje(perfil, contexto, costo_total, dentro_ppto),
+            mensaje              = mensaje,
             alertas              = json.dumps(self._generar_alertas(perfil, contexto), ensure_ascii=False),
             consumido            = False,
             costo_total_estimado = costo_total if costo_total > 0 else None,
             dentro_presupuesto   = dentro_ppto,
+            generado_con_ia      = self._ia_used,
         )
 
         self.db.add(menu)
         self.db.commit()
         self.db.refresh(menu)
         return menu
+
+    # ── Feedback / Dislikes ────────────────────────────────────────
+
+    def _get_disliked_ids(self, id_usuario: int) -> set[int]:
+        """Devuelve el set de id_alimento que el usuario ha marcado como 'dislike'."""
+        rows = (
+            self.db.query(models.MenuFeedback.id_alimento)
+            .filter(
+                models.MenuFeedback.id_usuario == id_usuario,
+                models.MenuFeedback.tipo == "dislike",
+            )
+            .distinct()
+            .all()
+        )
+        return {r[0] for r in rows}
+
+    def _get_disliked_names(self, id_usuario: int, disliked_ids: set[int]) -> set[str]:
+        """Devuelve los nombres de los alimentos rechazados (para el prompt de Gemini)."""
+        if not disliked_ids:
+            return set()
+        rows = (
+            self.db.query(models.Alimento.nombre)
+            .filter(models.Alimento.id_alimento.in_(disliked_ids))
+            .all()
+        )
+        return {r[0] for r in rows}
 
     # ── Contexto académico ─────────────────────────────────────────
 
@@ -284,22 +351,32 @@ class MotorRecomendacion:
         self,
         alimentos: list[models.Alimento],
         perfil: models.PerfilNutricional,
+        disliked_ids: Optional[set[int]] = None,
     ) -> list[models.Alimento]:
         alergias  = self._parse_csv(perfil.alergias)
         dieta     = (perfil.dieta or "").strip()
         conds     = self._parse_csv(perfil.condiciones_medicas)
+        disliked  = disliked_ids or set()
 
         resultado = []
         for a in alimentos:
+            if a.id_alimento in disliked:
+                continue
             if not self._cumple_restricciones(a, dieta, alergias, conds):
                 continue
             resultado.append(a)
 
         if not resultado:
+            # Si las restricciones + dislikes dejaron la lista vacía, relajamos
+            # los dislikes (las restricciones de salud son inviolables).
             logger.warning(
-                "No hay alimentos disponibles tras filtrar restricciones; usando todos."
+                "No hay alimentos disponibles tras filtrar restricciones+dislikes; "
+                "se ignoran los dislikes para no dejar al usuario sin menú."
             )
-            return alimentos
+            return [
+                a for a in alimentos
+                if self._cumple_restricciones(a, dieta, alergias, conds)
+            ] or alimentos
 
         return resultado
 
@@ -340,28 +417,122 @@ class MotorRecomendacion:
 
         return True
 
-    # ── Selección de alimentos ─────────────────────────────────────
+    # ── Selección de alimentos (paralelizada) ──────────────────────
 
-    def _seleccionar_comida(
+    # Tiempo máximo por comida en la llamada a Gemini (segundos).
+    # Si Gemini tarda más, esa comida cae al fallback rule-based.
+    GEMINI_TIMEOUT_PER_MEAL = 12.0
+
+    def _seleccionar_todas_comidas_paralelo(
+        self,
+        disponibles: list[models.Alimento],
+        cal_obj: int,
+        contexto: dict,
+        perfil: models.PerfilNutricional,
+        disliked_names: Optional[set[str]] = None,
+    ) -> tuple[list, list, list, list]:
+        """
+        Selecciona las 4 comidas (Desayuno/Almuerzo/Cena/Snack) en paralelo.
+
+        Estrategia: el ranking rule-based es rápido y se hace en serie. La
+        llamada a Gemini es la lenta (red), así que esas 4 llamadas se hacen
+        en hilos separados con timeout individual. Si Gemini no está
+        disponible o falla en alguna comida, esa comida usa el fallback
+        rule-based; las demás siguen.
+        """
+        tipos = ("Desayuno", "Almuerzo", "Cena", "Snack")
+
+        # Paso 1: rankeo candidatos por comida (rápido, en serie)
+        candidatos_por_tipo: dict[str, list[models.Alimento]] = {}
+        cal_meta_por_tipo: dict[str, int] = {}
+        for tipo in tipos:
+            candidatos, cal_meta = self._rankear_candidatos(
+                disponibles, tipo, cal_obj, contexto, perfil,
+            )
+            candidatos_por_tipo[tipo] = candidatos
+            cal_meta_por_tipo[tipo] = cal_meta
+
+        # Paso 2: llamar a Gemini para las 4 comidas en paralelo
+        # max_workers=4 para no abrir más hilos de los necesarios.
+        resultados_ia: dict[str, Optional[list[models.Alimento]]] = {
+            t: None for t in tipos
+        }
+
+        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="gemini-meal") as ex:
+            futures = {
+                ex.submit(
+                    ai_recommendation.pick_meal_with_gemini,
+                    candidatos=candidatos_por_tipo[tipo],
+                    tipo_comida=tipo,
+                    cal_meta=cal_meta_por_tipo[tipo],
+                    contexto=contexto,
+                    perfil=perfil,
+                    disliked_names=disliked_names,
+                    fresh=self._fresh,
+                ): tipo
+                for tipo in tipos
+                if candidatos_por_tipo[tipo]
+            }
+
+            for future in futures:
+                tipo = futures[future]
+                try:
+                    resultados_ia[tipo] = future.result(
+                        timeout=self.GEMINI_TIMEOUT_PER_MEAL,
+                    )
+                except FuturesTimeout:
+                    logger.warning(
+                        "Gemini timeout en %s (>%.0fs), usando fallback rule-based",
+                        tipo, self.GEMINI_TIMEOUT_PER_MEAL,
+                    )
+                    resultados_ia[tipo] = None
+                except Exception as e:
+                    logger.warning(
+                        "Gemini error en %s: %s, usando fallback rule-based",
+                        tipo, e,
+                    )
+                    resultados_ia[tipo] = None
+
+        # Paso 3: para cada comida, usar la selección de Gemini si existe,
+        #         o caer al greedy rule-based.
+        seleccion_final: dict[str, list[models.Alimento]] = {}
+        for tipo in tipos:
+            if resultados_ia[tipo]:
+                self._ia_used = True
+                seleccion_final[tipo] = resultados_ia[tipo]
+            else:
+                seleccion_final[tipo] = self._seleccionar_greedy(
+                    candidatos_por_tipo[tipo],
+                    cal_meta_por_tipo[tipo],
+                )
+
+        return (
+            seleccion_final["Desayuno"],
+            seleccion_final["Almuerzo"],
+            seleccion_final["Cena"],
+            seleccion_final["Snack"],
+        )
+
+    def _rankear_candidatos(
         self,
         disponibles: list[models.Alimento],
         tipo: str,
         cal_objetivo_total: int,
         contexto: dict,
         perfil: models.PerfilNutricional,
-    ) -> list[models.Alimento]:
+    ) -> tuple[list[models.Alimento], int]:
         """
-        Selecciona 1-3 alimentos del tipo de comida indicado
-        para cubrir el presupuesto calórico de esa comida.
+        Filtra candidatos por tipo de comida y los ordena por score.
+        Devuelve (candidatos_ordenados, cal_meta_para_esta_comida).
         """
         fraccion = _CAL_DIST.get(tipo, 0.25)
         cal_meta = int(cal_objetivo_total * fraccion)
 
         candidatos = [a for a in disponibles if a.tipo_comida == tipo]
         if not candidatos:
-            return []
+            return [], cal_meta
 
-        # Puntuar candidatos según contexto, objetivo y presupuesto
+        # Scoring rule-based
         tipo_dia       = contexto.get("tipo_dia", "normal")
         objetivo       = perfil.objetivo or "Mantener"
         nivel_ppto     = (perfil.nivel_presupuesto or "").lower()
@@ -381,7 +552,6 @@ class MotorRecomendacion:
                 s += 2.0
             if objetivo == "Bajar peso" and a.calorias < 300:
                 s += 1.0
-            # Ajuste por presupuesto
             costo = a.costo_estimado or 0.0
             if nivel_ppto == "bajo" or tipo_menu_pref == "economico":
                 if costo > 0 and costo <= 45.0:
@@ -394,7 +564,18 @@ class MotorRecomendacion:
             return s
 
         candidatos.sort(key=score, reverse=True)
+        return candidatos, cal_meta
 
+    def _seleccionar_greedy(
+        self,
+        candidatos: list[models.Alimento],
+        cal_meta: int,
+    ) -> list[models.Alimento]:
+        """
+        Selección rule-based simple: greedy hasta 3 alimentos o hasta
+        acercarse al objetivo calórico. Usado como fallback cuando Gemini
+        no responde.
+        """
         seleccionados: list[models.Alimento] = []
         restante = cal_meta
 
@@ -410,6 +591,43 @@ class MotorRecomendacion:
             seleccionados.append(min(candidatos, key=lambda a: a.calorias))
 
         return seleccionados
+
+    # ── Selección de alimentos (legacy, una sola comida) ──────────
+
+    def _seleccionar_comida(
+        self,
+        disponibles: list[models.Alimento],
+        tipo: str,
+        cal_objetivo_total: int,
+        contexto: dict,
+        perfil: models.PerfilNutricional,
+        disliked_names: Optional[set[str]] = None,
+    ) -> list[models.Alimento]:
+        """
+        Método legacy: selecciona una sola comida (sin paralelizar).
+        Conservado por compatibilidad; el flujo principal ahora usa
+        _seleccionar_todas_comidas_paralelo.
+        """
+        candidatos, cal_meta = self._rankear_candidatos(
+            disponibles, tipo, cal_objetivo_total, contexto, perfil,
+        )
+        if not candidatos:
+            return []
+
+        ai_pick = ai_recommendation.pick_meal_with_gemini(
+            candidatos=candidatos,
+            tipo_comida=tipo,
+            cal_meta=cal_meta,
+            contexto=contexto,
+            perfil=perfil,
+            disliked_names=disliked_names,
+            fresh=self._fresh,
+        )
+        if ai_pick:
+            self._ia_used = True
+            return ai_pick
+
+        return self._seleccionar_greedy(candidatos, cal_meta)
 
     # ── Optimización de presupuesto ───────────────────────────────
 
@@ -496,7 +714,9 @@ class MotorRecomendacion:
         }
 
     def _alimento_a_dict(self, a: models.Alimento) -> dict:
+        # Incluimos id_alimento para que el frontend pueda enviar feedback
         return {
+            "id_alimento":    a.id_alimento,
             "nombre":         a.nombre,
             "descripcion":    a.descripcion,
             "porcion":        a.porcion,
@@ -528,13 +748,52 @@ class MotorRecomendacion:
 
     # ── Mensaje y alertas ──────────────────────────────────────────
 
+    # Tiempo máximo para el mensaje personalizado (segundos).
+    GEMINI_TIMEOUT_MESSAGE = 8.0
+
     def _generar_mensaje(
         self,
         perfil: models.PerfilNutricional,
         contexto: dict,
         costo_total: float = 0.0,
         dentro_presupuesto: Optional[bool] = None,
+        menu_items: Optional[dict] = None,
     ) -> str:
+        """
+        Genera el mensaje del día para el menú.
+
+        Intenta primero con Gemini (mensaje personalizado y cálido).
+        Si Gemini falla, no está disponible, o tarda más de
+        GEMINI_TIMEOUT_MESSAGE segundos, usa los templates estáticos.
+        """
+        # Intento 1: Gemini con timeout (no queremos esperar 30 segundos
+        # solo por el mensaje si la red está lenta)
+        if menu_items:
+            ai_msg = None
+            try:
+                with ThreadPoolExecutor(max_workers=1, thread_name_prefix="gemini-msg") as ex:
+                    future = ex.submit(
+                        ai_recommendation.generate_personalized_message,
+                        perfil=perfil,
+                        contexto=contexto,
+                        menu_items=menu_items,
+                        costo_total=costo_total,
+                        dentro_presupuesto=dentro_presupuesto,
+                    )
+                    ai_msg = future.result(timeout=self.GEMINI_TIMEOUT_MESSAGE)
+            except FuturesTimeout:
+                logger.warning(
+                    "Gemini timeout en mensaje (>%.0fs), usando fallback estático",
+                    self.GEMINI_TIMEOUT_MESSAGE,
+                )
+            except Exception as e:
+                logger.warning("Gemini error en mensaje: %s, usando fallback estático", e)
+
+            if ai_msg:
+                self._ia_used = True
+                return ai_msg
+
+        # Intento 2: fallback estático (lógica original)
         tipo_dia = contexto.get("tipo_dia", "normal")
         msg = _MENSAJES.get(tipo_dia, _MENSAJES["normal"])
         msg += _MSG_OBJETIVO.get(perfil.objetivo or "Mantener", "")

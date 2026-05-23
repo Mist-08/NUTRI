@@ -54,16 +54,43 @@ def generate_fresh_menu(
     """
     Genera un menú nuevo para el día, eliminando cualquier menú previo
     para esa fecha (regeneración forzada).
+
+    Antes de borrar el menú viejo, limpia las referencias en tablas que
+    apuntan a él para evitar FK violations:
+    - MenuFeedback: se desliga (id_menu → NULL) preservando el like/dislike
+    - RegistroNutricion: se elimina (se rehace si se vuelve a marcar consumido)
     """
     target = fecha or date.today()
 
     existing = get_menu_hoy(db, usuario.id_usuario, target)
     if existing:
+        _detach_menu_references(db, existing.id_menu)
         db.delete(existing)
         db.commit()
 
     motor = MotorRecomendacion(db)
-    return motor.generar_para_usuario(usuario, perfil, target)
+    return motor.generar_para_usuario(usuario, perfil, target, fresh=True)
+
+
+def _detach_menu_references(db: Session, id_menu: int) -> None:
+    """
+    Limpia las referencias FK hacia un menú antes de borrarlo.
+
+    Esto es necesario porque las FKs creadas por SQLAlchemy en versiones
+    anteriores no tienen ON DELETE configurado. Esta función hace
+    explícito lo que la BD no maneja automáticamente.
+    """
+    # MenuFeedback: preservamos el feedback pero desligamos del menú
+    db.query(models.MenuFeedback).filter(
+        models.MenuFeedback.id_menu == id_menu
+    ).update({"id_menu": None}, synchronize_session=False)
+
+    # RegistroNutricion: se borra (es derivado del consumo del menú)
+    db.query(models.RegistroNutricion).filter(
+        models.RegistroNutricion.id_menu == id_menu
+    ).delete(synchronize_session=False)
+
+    db.flush()
 
 
 def marcar_consumido(
@@ -148,14 +175,7 @@ def delete_menu(db: Session, id_menu: int, id_usuario: int) -> bool:
     if not menu:
         return False
 
-    registro = (
-        db.query(models.RegistroNutricion)
-        .filter(models.RegistroNutricion.id_menu == id_menu)
-        .first()
-    )
-    if registro:
-        db.delete(registro)
-
+    _detach_menu_references(db, id_menu)
     db.delete(menu)
     db.commit()
     return True

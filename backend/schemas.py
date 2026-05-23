@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, field_validator
-from typing import Optional, List
+from typing import Optional, List, Literal
 from datetime import time, date, datetime
 
 
@@ -173,6 +173,7 @@ class AlimentoEnMenu(BaseModel):
     beneficios:      Optional[str]   = None
     advertencias:    Optional[str]   = None
     costo_estimado:  Optional[float] = None
+    id_alimento:     Optional[int]   = None   # se incluye para poder dar feedback
 
 
 class ContextoAcademicoSchema(BaseModel):
@@ -207,6 +208,7 @@ class MenuDiarioResponse(BaseModel):
     fecha_generacion:     str
     costo_total_estimado: Optional[float] = None
     dentro_presupuesto:   Optional[bool]  = None
+    generado_con_ia:      bool = False
 
     class Config:
         from_attributes = True
@@ -353,3 +355,28 @@ class ChatbotResponse(BaseModel):
     suggestions:  List[str] = []
     related_menu: Optional[dict] = None
     context_card: Optional[dict] = None
+
+
+# ── Feedback de menú (NUEVO en Fase 2) ────────────────────────────
+
+class FeedbackRequest(BaseModel):
+    """
+    Body para POST /recommendations/feedback.
+
+    El usuario marca un alimento específico de un menú como 'like' o 'dislike'.
+    Si tipo='dislike' y regenerar=True, el sistema descarta ese alimento y
+    genera un nuevo menú automáticamente.
+    """
+    id_alimento: int
+    tipo:        Literal["like", "dislike"]
+    motivo:      Optional[str] = None
+    id_menu:     Optional[int] = None
+    regenerar:   bool = False     # solo aplica si tipo='dislike'
+
+
+class FeedbackResponse(BaseModel):
+    """Respuesta tras registrar feedback"""
+    id_feedback:     int
+    tipo:            str
+    mensaje:         str
+    menu_regenerado: Optional[MenuDiarioResponse] = None

@@ -22,6 +22,7 @@ class Usuario(Base):
     materias          = relationship("Materia", back_populates="usuario")
     menus             = relationship("MenuDiario", back_populates="usuario")
     registros         = relationship("RegistroNutricion", back_populates="usuario")
+    feedback          = relationship("MenuFeedback", back_populates="usuario")
 
 
 class PerfilNutricional(Base):
@@ -162,6 +163,9 @@ class MenuDiario(Base):
     costo_total_estimado  = Column(Float, nullable=True)
     dentro_presupuesto    = Column(Boolean, nullable=True)
 
+    # Marca si el menú fue generado con IA o solo con reglas
+    generado_con_ia       = Column(Boolean, default=False)
+
     usuario = relationship("Usuario", back_populates="menus")
 
 
@@ -182,3 +186,29 @@ class RegistroNutricion(Base):
     fecha_registro    = Column(DateTime(timezone=True), server_default=func.now())
 
     usuario = relationship("Usuario", back_populates="registros")
+
+
+# ── Feedback de menús (NUEVO en Fase 2) ───────────────────────────
+
+class MenuFeedback(Base):
+    """
+    Tabla 'menu_feedback' — likes/dislikes de alimentos específicos en menús.
+
+    Usos:
+    - 'dislike': el alimento se excluye permanentemente de futuras
+      recomendaciones para este usuario.
+    - 'like': sirve de señal para boost en el scoring (fase 3 de filtrado
+      colaborativo) y para sugerir el alimento a usuarios similares.
+    """
+    __tablename__ = "menu_feedback"
+
+    id_feedback   = Column(Integer, primary_key=True, index=True)
+    id_usuario    = Column(Integer, ForeignKey("usuarios.id_usuario"), nullable=False, index=True)
+    id_menu       = Column(Integer, ForeignKey("menus_diarios.id_menu"), nullable=True)
+    id_alimento   = Column(Integer, ForeignKey("alimentos.id_alimento"), nullable=False, index=True)
+    tipo          = Column(String(20), nullable=False)   # 'like' o 'dislike'
+    motivo        = Column(String(255), nullable=True)
+    fecha         = Column(DateTime(timezone=True), server_default=func.now())
+
+    usuario  = relationship("Usuario", back_populates="feedback")
+    alimento = relationship("Alimento")
