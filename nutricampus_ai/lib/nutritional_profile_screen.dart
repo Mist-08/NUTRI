@@ -159,6 +159,81 @@ int _calcularCalorias({
   return (tdee * ajuste).round();
 }
 
+/// Resultado del reparto de macronutrientes.
+class Macros {
+  final int proteinas;     // gramos
+  final int carbohidratos; // gramos
+  final int grasas;        // gramos
+  final int calorias;      // kcal (eco para mostrar)
+
+  const Macros({
+    required this.proteinas,
+    required this.carbohidratos,
+    required this.grasas,
+    required this.calorias,
+  });
+
+  bool get isEmpty => calorias == 0;
+}
+
+/// Calcula el reparto de macronutrientes a partir de las calorías
+/// objetivo, el objetivo del usuario y su tipo de dieta.
+///
+/// Reglas (porcentaje de calorías por macro):
+///   - Proteína: 4 kcal/g · Carbohidratos: 4 kcal/g · Grasa: 9 kcal/g
+///
+/// Los porcentajes se ajustan según objetivo y dieta. Por ejemplo,
+/// "Subir masa" sube la proteína; las dietas vegana/vegetariana suben
+/// un poco los carbohidratos porque la proteína es más difícil de
+/// alcanzar solo con vegetales.
+Macros _calcularMacros({
+  required int calorias,
+  required String? objetivo,
+  required String? dieta,
+}) {
+  if (calorias <= 0) {
+    return const Macros(proteinas: 0, carbohidratos: 0, grasas: 0, calorias: 0);
+  }
+
+  // Reparto base según objetivo: {proteína%, carbos%, grasa%}
+  Map<String, double> reparto;
+  switch (objetivo) {
+    case 'Subir masa':
+      reparto = {'prot': 0.30, 'carb': 0.45, 'gras': 0.25};
+      break;
+    case 'Bajar peso':
+      reparto = {'prot': 0.35, 'carb': 0.35, 'gras': 0.30};
+      break;
+    case 'Mejorar rendimiento':
+      reparto = {'prot': 0.25, 'carb': 0.50, 'gras': 0.25};
+      break;
+    case 'Mantener':
+    default:
+      reparto = {'prot': 0.25, 'carb': 0.50, 'gras': 0.25};
+  }
+
+  // Ajuste por dieta: las dietas basadas en plantas suben carbos y
+  // bajan un poco la proteína (más difícil de alcanzar sin carne).
+  if (dieta == 'Vegana' || dieta == 'Vegetariana') {
+    reparto = {
+      'prot': reparto['prot']! - 0.05,
+      'carb': reparto['carb']! + 0.05,
+      'gras': reparto['gras']!,
+    };
+  }
+
+  final proteinas = (calorias * reparto['prot']! / 4).round();
+  final carbohidratos = (calorias * reparto['carb']! / 4).round();
+  final grasas = (calorias * reparto['gras']! / 9).round();
+
+  return Macros(
+    proteinas: proteinas,
+    carbohidratos: carbohidratos,
+    grasas: grasas,
+    calorias: calorias,
+  );
+}
+
 // ── Date picker con scroll por año ────────────────────────────────
 
 /// Muestra un date picker custom con scroll horizontal de años para
@@ -938,6 +1013,14 @@ class _ProfileWizardState extends State<_ProfileWizard> {
           if (_calorias > 0) ...[
             const SizedBox(height: 16),
             _CaloriesPreviewCard(calorias: _calorias, objetivo: _selectedGoal),
+            const SizedBox(height: 12),
+            _MacrosCard(
+              macros: _calcularMacros(
+                calorias: _calorias,
+                objetivo: _selectedGoal,
+                dieta: _selectedDiet,
+              ),
+            ),
           ],
         ],
       ),
@@ -1557,6 +1640,16 @@ class _EditProfileViewState extends State<_EditProfileView> {
                   const SizedBox(height: 16),
                   _sectionHeader('Plan'),
                   _planCards(),
+                  if (_calorias > 0) ...[
+                    const SizedBox(height: 8),
+                    _MacrosCard(
+                      macros: _calcularMacros(
+                        calorias: _calorias,
+                        objetivo: _objetivo,
+                        dieta: _dieta,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   _sectionHeader('Dieta y salud'),
                   _dietaCard(),
@@ -2322,6 +2415,96 @@ class _CaloriesPreviewCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Tarjeta visual con el desglose de macronutrientes en barras.
+class _MacrosCard extends StatelessWidget {
+  final Macros macros;
+
+  const _MacrosCard({required this.macros});
+
+  @override
+  Widget build(BuildContext context) {
+    // kcal aportadas por cada macro (para las proporciones de la barra)
+    final kcalProt = macros.proteinas * 4;
+    final kcalCarb = macros.carbohidratos * 4;
+    final kcalGras = macros.grasas * 9;
+    final total = (kcalProt + kcalCarb + kcalGras).clamp(1, 1 << 30);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.pie_chart_rounded, color: _primaryGreen, size: 20),
+              const SizedBox(width: 8),
+              const Text('Macronutrientes objetivo',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: _darkText)),
+            ],
+          ),
+          const SizedBox(height: 14),
+          // Barra apilada de proporciones
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Row(
+              children: [
+                Expanded(
+                  flex: (kcalProt / total * 1000).round().clamp(1, 1000),
+                  child: Container(height: 12, color: const Color(0xFFEF5350)),
+                ),
+                Expanded(
+                  flex: (kcalCarb / total * 1000).round().clamp(1, 1000),
+                  child: Container(height: 12, color: const Color(0xFF42A5F5)),
+                ),
+                Expanded(
+                  flex: (kcalGras / total * 1000).round().clamp(1, 1000),
+                  child: Container(height: 12, color: const Color(0xFFFFA726)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _macroItem('Proteínas', macros.proteinas, const Color(0xFFEF5350)),
+              _macroItem('Carbos', macros.carbohidratos, const Color(0xFF42A5F5)),
+              _macroItem('Grasas', macros.grasas, const Color(0xFFFFA726)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _macroItem(String label, int grams, Color color) {
+    return Column(
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 10, height: 10,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 6),
+            Text(label,
+                style: TextStyle(fontSize: 12, color: Colors.grey[700], fontWeight: FontWeight.w500)),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text('${grams}g',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
+      ],
     );
   }
 }
