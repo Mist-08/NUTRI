@@ -570,6 +570,20 @@ class _HomeScreenState extends State<HomeScreen> {
         badge: _perfil == null ? '!' : null,
         onTap: () => Navigator.pushNamed(context, '/recomendacion'),
       ),
+      _NavCard(
+        title: 'Asistente',
+        subtitle: 'Chatbot NutriCampus',
+        icon: Icons.smart_toy_rounded,
+        gradient: [const Color(0xFF00695C), const Color(0xFF26A69A)],
+        onTap: () => Navigator.pushNamed(context, '/chatbot'),
+      ),
+      _NavCard(
+        title: 'Presupuesto',
+        subtitle: _perfil == null ? 'Completa tu perfil' : 'Gestionar gasto',
+        icon: Icons.account_balance_wallet_rounded,
+        gradient: [const Color(0xFFF57F17), const Color(0xFFFFCA28)],
+        onTap: () => Navigator.pushNamed(context, '/presupuesto'),
+      ),
     ];
 
     return Column(
@@ -587,6 +601,14 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(child: cards[2]),
             const SizedBox(width: 12),
             Expanded(child: cards[3]),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: cards[4]),
+            const SizedBox(width: 12),
+            Expanded(child: cards[5]),
           ],
         ),
       ],

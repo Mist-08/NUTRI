@@ -59,6 +59,10 @@ class PerfilCreate(BaseModel):
     calorias_diarias:   Optional[int]  = None
     condiciones_medicas: Optional[str] = None
     fecha_nacimiento:   Optional[date] = None  # nullable para perfiles legacy
+    presupuesto_diario:  Optional[float] = None
+    presupuesto_semanal: Optional[float] = None
+    nivel_presupuesto:   Optional[str]   = None
+    tipo_menu_preferido: Optional[str]   = None
 
 
 class PerfilResponse(PerfilCreate):
@@ -159,15 +163,16 @@ class EventoResponse(EventoCreate):
 
 class AlimentoEnMenu(BaseModel):
     """Un alimento concreto dentro de una comida del menú"""
-    nombre:        str
-    descripcion:   Optional[str] = None
-    porcion:       str
-    calorias:      int
-    proteinas:     float
-    grasas:        float
-    carbohidratos: float
-    beneficios:    Optional[str] = None
-    advertencias:  Optional[str] = None
+    nombre:          str
+    descripcion:     Optional[str]   = None
+    porcion:         str
+    calorias:        int
+    proteinas:       float
+    grasas:          float
+    carbohidratos:   float
+    beneficios:      Optional[str]   = None
+    advertencias:    Optional[str]   = None
+    costo_estimado:  Optional[float] = None
 
 
 class ContextoAcademicoSchema(BaseModel):
@@ -196,10 +201,12 @@ class MenuDiarioResponse(BaseModel):
     cena:               List[AlimentoEnMenu]
     snacks:             List[AlimentoEnMenu]
     contexto:           Optional[ContextoAcademicoSchema] = None
-    mensaje:            Optional[str] = None
-    alertas:            List[str] = []
-    consumido:          bool
-    fecha_generacion:   str
+    mensaje:              Optional[str]   = None
+    alertas:              List[str]       = []
+    consumido:            bool
+    fecha_generacion:     str
+    costo_total_estimado: Optional[float] = None
+    dentro_presupuesto:   Optional[bool]  = None
 
     class Config:
         from_attributes = True
@@ -299,3 +306,50 @@ class RegistroNutricionResponse(RegistroNutricionCreate):
 
     class Config:
         from_attributes = True
+
+
+# ── Presupuesto ───────────────────────────────────────────────────
+
+class PresupuestoUpdate(BaseModel):
+    """Body para PUT /nutrition/budget"""
+    presupuesto_diario:  Optional[float] = None
+    presupuesto_semanal: Optional[float] = None
+    nivel_presupuesto:   Optional[str]   = None   # bajo, medio, alto
+    tipo_menu_preferido: Optional[str]   = None   # economico, balanceado, premium
+
+
+class PresupuestoResponse(BaseModel):
+    presupuesto_diario:  Optional[float] = None
+    presupuesto_semanal: Optional[float] = None
+    nivel_presupuesto:   Optional[str]   = None
+    tipo_menu_preferido: Optional[str]   = None
+
+    class Config:
+        from_attributes = True
+
+
+class BudgetStatsResponse(BaseModel):
+    dias_analizados:        int
+    costo_promedio_diario:  float
+    costo_total_periodo:    float
+    dias_dentro_presupuesto: int
+    dias_fuera_presupuesto:  int
+    presupuesto_diario:     Optional[float]
+    nivel_presupuesto:      Optional[str]
+    ahorro_estimado:        Optional[float]
+
+
+# ── Chatbot ───────────────────────────────────────────────────────
+
+class ChatbotMessageRequest(BaseModel):
+    """Body para POST /chatbot/message"""
+    message: str
+
+
+class ChatbotResponse(BaseModel):
+    """Respuesta del chatbot"""
+    reply:        str
+    intent:       str
+    suggestions:  List[str] = []
+    related_menu: Optional[dict] = None
+    context_card: Optional[dict] = None

@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from database import engine, Base, SessionLocal
 from routers import users
-from routers import recommendations, menus
+from routers import recommendations, menus, budget, chatbot
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="NutriCampus AI API",
     description="Backend para autenticación, perfil nutricional y recomendaciones de menú",
-    version="2.0.0",
+    version="3.0.0",
     lifespan=lifespan,
 )
 
@@ -57,8 +57,10 @@ app.include_router(users.router)
 # Routers nuevos
 app.include_router(recommendations.router)
 app.include_router(menus.router)
+app.include_router(budget.router)
+app.include_router(chatbot.router)
 
 
 @app.get("/")
 def root():
-    return {"message": "NutriCampus AI API corriendo ✅", "version": "2.0.0"}
+    return {"message": "NutriCampus AI API corriendo ✅", "version": "3.0.0"}

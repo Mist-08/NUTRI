@@ -43,6 +43,12 @@ class PerfilNutricional(Base):
     condiciones_medicas   = Column(Text, nullable=True)
     fecha_actualizacion   = Column(DateTime(timezone=True), onupdate=func.now())
 
+    # Presupuesto alimentario
+    presupuesto_diario    = Column(Float, nullable=True)       # MXN por día
+    presupuesto_semanal   = Column(Float, nullable=True)       # MXN por semana
+    nivel_presupuesto     = Column(String(20), nullable=True)  # bajo, medio, alto
+    tipo_menu_preferido   = Column(String(20), nullable=True)  # economico, balanceado, premium
+
     usuario = relationship("Usuario", back_populates="perfil")
 
 
@@ -120,6 +126,9 @@ class Alimento(Base):
     alto_rendimiento  = Column(Boolean, default=False)   # alta carga académica
     ligero            = Column(Boolean, default=False)   # bajo en calorías / digestión fácil
 
+    # Costo estimado en MXN
+    costo_estimado    = Column(Float, nullable=True)
+
 
 class MenuDiario(Base):
     """Tabla 'menus_diarios' — menús generados por el motor de recomendación"""
@@ -148,6 +157,10 @@ class MenuDiario(Base):
     alertas           = Column(Text, nullable=True)         # JSON list of strings
     consumido         = Column(Boolean, default=False)
     fecha_generacion  = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Presupuesto
+    costo_total_estimado  = Column(Float, nullable=True)
+    dentro_presupuesto    = Column(Boolean, nullable=True)
 
     usuario = relationship("Usuario", back_populates="menus")
 

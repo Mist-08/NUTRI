@@ -154,6 +154,14 @@ class ApiService {
         'error': 'Respuesta del servidor con formato inválido',
         'errorType': ApiErrorType.unknown,
       };
+    } on Exception {
+      // Catches ClientException (Flutter web), HttpException, and other
+      // Exception subclasses not already handled above.
+      return {
+        'success': false,
+        'error': 'Error de conexión. Verifica que el servidor esté activo.',
+        'errorType': ApiErrorType.network,
+      };
     } catch (_) {
       return {
         'success': false,
@@ -402,4 +410,50 @@ class ApiService {
   /// Estadísticas nutricionales de los últimos 7 días.
   static Future<Map<String, dynamic>> getNutritionStats() =>
       _request(method: 'GET', path: '/nutrition/stats');
+
+  // ── Presupuesto ───────────────────────────────────────────────
+
+  /// Obtiene la configuración de presupuesto del usuario.
+  static Future<Map<String, dynamic>> getBudget() =>
+      _request(method: 'GET', path: '/nutrition/budget');
+
+  /// Actualiza el presupuesto del usuario.
+  static Future<Map<String, dynamic>> updateBudget({
+    double? presupuestoDiario,
+    double? presupuestoSemanal,
+    String? nivelPresupuesto,
+    String? tipoMenuPreferido,
+  }) =>
+      _request(
+        method: 'PUT',
+        path: '/nutrition/budget',
+        body: {
+          'presupuesto_diario': presupuestoDiario,
+          'presupuesto_semanal': presupuestoSemanal,
+          'nivel_presupuesto': nivelPresupuesto,
+          'tipo_menu_preferido': tipoMenuPreferido,
+        },
+      );
+
+  /// Estadísticas de gasto alimentario de los últimos N días.
+  static Future<Map<String, dynamic>> getBudgetStats({int dias = 7}) =>
+      _request(method: 'GET', path: '/nutrition/budget-stats?dias=$dias');
+
+  // ── Chatbot ───────────────────────────────────────────────────
+
+  /// Envía un mensaje al chatbot y recibe una respuesta personalizada.
+  static Future<Map<String, dynamic>> sendChatMessage(String message) =>
+      _request(
+        method: 'POST',
+        path: '/chatbot/message',
+        body: {'message': message},
+      );
+
+  /// Obtiene sugerencias de preguntas contextuales para el chatbot.
+  static Future<Map<String, dynamic>> getChatSuggestions() =>
+      _request(method: 'GET', path: '/chatbot/suggestions');
+
+  /// Obtiene el contexto del usuario tal como lo ve el chatbot.
+  static Future<Map<String, dynamic>> getChatContext() =>
+      _request(method: 'GET', path: '/chatbot/context');
 }

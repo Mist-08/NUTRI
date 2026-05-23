@@ -1,8 +1,8 @@
 """
 Catálogo de alimentos para el motor de recomendación de NutriCampus AI.
 
-Cada entrada contiene información nutricional, restricciones dietéticas
-y etiquetas de contexto académico.
+Cada entrada contiene información nutricional, restricciones dietéticas,
+etiquetas de contexto académico y costo estimado en MXN.
 """
 
 FOODS_DB = [
@@ -38,6 +38,7 @@ FOODS_DB = [
         "alta_proteina": False,
         "alto_rendimiento": True,
         "ligero": False,
+        "costo_estimado": 25.0,
     },
     {
         "nombre": "Huevos revueltos con tortilla integral y frijoles",
@@ -66,6 +67,7 @@ FOODS_DB = [
         "alta_proteina": True,
         "alto_rendimiento": True,
         "ligero": False,
+        "costo_estimado": 30.0,
     },
     {
         "nombre": "Yogur griego con granola y frutos rojos",
@@ -94,6 +96,7 @@ FOODS_DB = [
         "alta_proteina": True,
         "alto_rendimiento": False,
         "ligero": False,
+        "costo_estimado": 65.0,
     },
     {
         "nombre": "Tostadas integrales con aguacate y jitomate",
@@ -122,6 +125,7 @@ FOODS_DB = [
         "alta_proteina": False,
         "alto_rendimiento": False,
         "ligero": False,
+        "costo_estimado": 40.0,
     },
     {
         "nombre": "Smoothie verde de espinaca, plátano y avena",
@@ -150,6 +154,7 @@ FOODS_DB = [
         "alta_proteina": False,
         "alto_rendimiento": False,
         "ligero": True,
+        "costo_estimado": 35.0,
     },
     {
         "nombre": "Omelet de verduras con queso y salsa",
@@ -178,6 +183,7 @@ FOODS_DB = [
         "alta_proteina": True,
         "alto_rendimiento": True,
         "ligero": False,
+        "costo_estimado": 45.0,
     },
     {
         "nombre": "Cereal integral con leche de almendra y fruta",
@@ -206,6 +212,7 @@ FOODS_DB = [
         "alta_proteina": False,
         "alto_rendimiento": True,
         "ligero": False,
+        "costo_estimado": 55.0,
     },
     {
         "nombre": "Fruta fresca con queso cottage y semillas de chía",
@@ -234,6 +241,7 @@ FOODS_DB = [
         "alta_proteina": True,
         "alto_rendimiento": False,
         "ligero": True,
+        "costo_estimado": 50.0,
     },
     {
         "nombre": "Chilaquiles verdes con frijoles y crema",
@@ -262,6 +270,7 @@ FOODS_DB = [
         "alta_proteina": False,
         "alto_rendimiento": True,
         "ligero": False,
+        "costo_estimado": 50.0,
     },
     {
         "nombre": "Pan integral con mantequilla de almendra y plátano",
@@ -290,6 +299,7 @@ FOODS_DB = [
         "alta_proteina": False,
         "alto_rendimiento": True,
         "ligero": False,
+        "costo_estimado": 50.0,
     },
 
     # ══════════════════════════════════════════════
@@ -323,6 +333,7 @@ FOODS_DB = [
         "alta_proteina": True,
         "alto_rendimiento": True,
         "ligero": False,
+        "costo_estimado": 75.0,
     },
     {
         "nombre": "Lentejas guisadas con arroz blanco y nopales",
@@ -351,6 +362,7 @@ FOODS_DB = [
         "alta_proteina": True,
         "alto_rendimiento": True,
         "ligero": False,
+        "costo_estimado": 40.0,
     },
     {
         "nombre": "Bowl de quinoa con pollo, aguacate y verduras",
@@ -379,6 +391,7 @@ FOODS_DB = [
         "alta_proteina": True,
         "alto_rendimiento": True,
         "ligero": False,
+        "costo_estimado": 90.0,
     },
     {
         "nombre": "Sopa de verduras con pollo desmenuzado",
@@ -407,6 +420,7 @@ FOODS_DB = [
         "alta_proteina": False,
         "alto_rendimiento": False,
         "ligero": True,
+        "costo_estimado": 55.0,
     },
     {
         "nombre": "Salmón al limón con brócoli al vapor y arroz",
@@ -435,6 +449,7 @@ FOODS_DB = [
         "alta_proteina": True,
         "alto_rendimiento": True,
         "ligero": False,
+        "costo_estimado": 130.0,
     },
     {
         "nombre": "Tacos de frijoles, guacamole y nopales",
@@ -463,6 +478,7 @@ FOODS_DB = [
         "alta_proteina": False,
         "alto_rendimiento": True,
         "ligero": False,
+        "costo_estimado": 40.0,
     },
     {
         "nombre": "Milanesa de pollo con puré de papa y ejotes",
@@ -491,6 +507,7 @@ FOODS_DB = [
         "alta_proteina": True,
         "alto_rendimiento": True,
         "ligero": False,
+        "costo_estimado": 70.0,
     },
     {
         "nombre": "Arroz con frijoles negros, plátano macho y verduras",
@@ -519,6 +536,7 @@ FOODS_DB = [
         "alta_proteina": False,
         "alto_rendimiento": True,
         "ligero": False,
+        "costo_estimado": 35.0,
     },
     {
         "nombre": "Ensalada César con pollo y crutones",
@@ -547,6 +565,7 @@ FOODS_DB = [
         "alta_proteina": True,
         "alto_rendimiento": False,
         "ligero": False,
+        "costo_estimado": 70.0,
     },
     {
         "nombre": "Pasta integral con atún, jitomate y aceitunas",
@@ -575,6 +594,7 @@ FOODS_DB = [
         "alta_proteina": False,
         "alto_rendimiento": True,
         "ligero": False,
+        "costo_estimado": 60.0,
     },
 
     # ══════════════════════════════════════════════
@@ -608,6 +628,7 @@ FOODS_DB = [
         "alta_proteina": False,
         "alto_rendimiento": False,
         "ligero": True,
+        "costo_estimado": 30.0,
     },
     {
         "nombre": "Ensalada verde con pechuga de pollo y aguacate",
@@ -636,6 +657,7 @@ FOODS_DB = [
         "alta_proteina": True,
         "alto_rendimiento": False,
         "ligero": False,
+        "costo_estimado": 70.0,
     },
     {
         "nombre": "Crema de zanahoria y jengibre",
@@ -664,6 +686,7 @@ FOODS_DB = [
         "alta_proteina": False,
         "alto_rendimiento": False,
         "ligero": True,
+        "costo_estimado": 35.0,
     },
     {
         "nombre": "Salmón al horno con espinacas salteadas",
@@ -692,6 +715,7 @@ FOODS_DB = [
         "alta_proteina": True,
         "alto_rendimiento": True,
         "ligero": False,
+        "costo_estimado": 120.0,
     },
     {
         "nombre": "Frijoles de olla con arroz integral y aguacate",
@@ -720,6 +744,7 @@ FOODS_DB = [
         "alta_proteina": False,
         "alto_rendimiento": False,
         "ligero": False,
+        "costo_estimado": 35.0,
     },
     {
         "nombre": "Omelet de espinacas, champiñones y queso fresco",
@@ -748,6 +773,7 @@ FOODS_DB = [
         "alta_proteina": True,
         "alto_rendimiento": False,
         "ligero": False,
+        "costo_estimado": 40.0,
     },
     {
         "nombre": "Pechuga de pavo al vapor con chayote y zanahoria",
@@ -776,6 +802,7 @@ FOODS_DB = [
         "alta_proteina": True,
         "alto_rendimiento": False,
         "ligero": True,
+        "costo_estimado": 65.0,
     },
     {
         "nombre": "Tacos de verduras rostizadas con frijoles",
@@ -804,6 +831,7 @@ FOODS_DB = [
         "alta_proteina": False,
         "alto_rendimiento": False,
         "ligero": False,
+        "costo_estimado": 40.0,
     },
     {
         "nombre": "Caldo de pollo con fideos y verduras",
@@ -832,6 +860,7 @@ FOODS_DB = [
         "alta_proteina": False,
         "alto_rendimiento": False,
         "ligero": True,
+        "costo_estimado": 45.0,
     },
 
     # ══════════════════════════════════════════════
@@ -865,6 +894,7 @@ FOODS_DB = [
         "alta_proteina": False,
         "alto_rendimiento": False,
         "ligero": True,
+        "costo_estimado": 15.0,
     },
     {
         "nombre": "Yogur griego natural",
@@ -893,6 +923,7 @@ FOODS_DB = [
         "alta_proteina": True,
         "alto_rendimiento": False,
         "ligero": False,
+        "costo_estimado": 35.0,
     },
     {
         "nombre": "Guacamole con jicama en bastones",
@@ -921,6 +952,7 @@ FOODS_DB = [
         "alta_proteina": False,
         "alto_rendimiento": False,
         "ligero": True,
+        "costo_estimado": 30.0,
     },
     {
         "nombre": "Mix de nueces, almendras y arándanos secos",
@@ -949,6 +981,7 @@ FOODS_DB = [
         "alta_proteina": False,
         "alto_rendimiento": True,
         "ligero": False,
+        "costo_estimado": 45.0,
     },
     {
         "nombre": "Edamame al vapor con sal de mar",
@@ -977,6 +1010,7 @@ FOODS_DB = [
         "alta_proteina": True,
         "alto_rendimiento": True,
         "ligero": False,
+        "costo_estimado": 35.0,
     },
     {
         "nombre": "Galletas de arroz con hummus",
@@ -1005,6 +1039,7 @@ FOODS_DB = [
         "alta_proteina": False,
         "alto_rendimiento": False,
         "ligero": True,
+        "costo_estimado": 30.0,
     },
     {
         "nombre": "Pepino con chile piquín y limón",
@@ -1033,6 +1068,7 @@ FOODS_DB = [
         "alta_proteina": False,
         "alto_rendimiento": False,
         "ligero": True,
+        "costo_estimado": 10.0,
     },
     {
         "nombre": "Agua de Jamaica natural sin azúcar",
@@ -1061,5 +1097,6 @@ FOODS_DB = [
         "alta_proteina": False,
         "alto_rendimiento": False,
         "ligero": True,
+        "costo_estimado": 10.0,
     },
 ]

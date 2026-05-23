@@ -194,6 +194,8 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                       _buildMessageCard(_menu!['mensaje'] as String),
                     const SizedBox(height: 16),
                     _buildMacrosSummary(),
+                    const SizedBox(height: 12),
+                    _buildBudgetCard(),
                     const SizedBox(height: 20),
                     _buildMealSection('desayuno'),
                     _buildMealSection('almuerzo'),
@@ -455,6 +457,72 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
     );
   }
 
+  // ── Tarjeta de presupuesto ────────────────────────────────────
+
+  Widget _buildBudgetCard() {
+    final costo = _menu!['costo_total_estimado'];
+    if (costo == null) return const SizedBox.shrink();
+
+    final costoNum        = (costo as num).toDouble();
+    final dentroPpto      = _menu!['dentro_presupuesto'] as bool?;
+    final Color cardColor = dentroPpto == false
+        ? const Color(0xFFE65100)
+        : const Color(0xFF2E7D32);
+    final Color cardBg    = dentroPpto == false
+        ? const Color(0xFFFFF3E0)
+        : const Color(0xFFE8F5E9);
+    final IconData cardIcon = dentroPpto == false
+        ? Icons.warning_amber_rounded
+        : Icons.check_circle_rounded;
+    final String statusText = dentroPpto == false
+        ? 'Supera tu presupuesto diario'
+        : dentroPpto == true
+            ? 'Dentro de tu presupuesto'
+            : 'Sin presupuesto configurado';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: cardColor.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: cardColor.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(cardIcon, color: cardColor, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Costo estimado del día',
+                  style: TextStyle(fontSize: 11, color: cardColor, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '\$${costoNum.toStringAsFixed(0)} MXN · $statusText',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: cardColor.withValues(alpha: 0.9),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ── Secciones de comida ────────────────────────────────────────
 
   Widget _buildMealSection(String key) {
@@ -466,7 +534,11 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
 
     if (items.isEmpty) return const SizedBox.shrink();
 
-    final totalCal = items.fold<int>(0, (sum, i) => sum + (i['calorias'] as int? ?? 0));
+    final totalCal  = items.fold<int>(0, (sum, i) => sum + (i['calorias'] as int? ?? 0));
+    final totalCost = items.fold<double>(
+      0,
+      (sum, i) => sum + ((i['costo_estimado'] as num?)?.toDouble() ?? 0),
+    );
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -494,16 +566,28 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                 Expanded(
                   child: Text(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _darkText)),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    '$totalCal kcal',
-                    style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.bold),
-                  ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        '$totalCal kcal',
+                        style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    if (totalCost > 0) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        '~\$${totalCost.toStringAsFixed(0)} MXN',
+                        style: TextStyle(fontSize: 11, color: Colors.green[700], fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),
@@ -672,16 +756,18 @@ class _FoodItemTileState extends State<_FoodItemTile> {
 
   @override
   Widget build(BuildContext context) {
-    final food        = widget.food;
-    final nombre      = food['nombre']       as String? ?? '';
-    final porcion     = food['porcion']      as String? ?? '';
-    final calorias    = food['calorias']     as int?    ?? 0;
-    final proteinas   = food['proteinas']    as double? ?? 0;
-    final carbos      = food['carbohidratos'] as double? ?? 0;
-    final grasas      = food['grasas']       as double? ?? 0;
-    final beneficios  = food['beneficios']   as String?;
-    final advertencias = food['advertencias'] as String?;
-    final descripcion = food['descripcion']  as String?;
+    final food         = widget.food;
+    final nombre       = food['nombre']        as String? ?? '';
+    final porcion      = food['porcion']       as String? ?? '';
+    final calorias     = food['calorias']      as int?    ?? 0;
+    final proteinas    = food['proteinas']     as double? ?? 0;
+    final carbos       = food['carbohidratos'] as double? ?? 0;
+    final grasas       = food['grasas']        as double? ?? 0;
+    final beneficios   = food['beneficios']    as String?;
+    final advertencias = food['advertencias']  as String?;
+    final descripcion  = food['descripcion']   as String?;
+    final costoRaw     = food['costo_estimado'];
+    final costo        = costoRaw != null ? (costoRaw as num).toDouble() : null;
 
     return Column(
       children: [
@@ -720,6 +806,11 @@ class _FoodItemTileState extends State<_FoodItemTile> {
                       children: [
                         Text('$calorias kcal', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: widget.accentColor)),
                         const SizedBox(height: 2),
+                        if (costo != null)
+                          Text(
+                            '~\$${costo.toStringAsFixed(0)}',
+                            style: TextStyle(fontSize: 11, color: Colors.green[700], fontWeight: FontWeight.w500),
+                          ),
                         Icon(_expanded ? Icons.expand_less : Icons.expand_more, color: Colors.grey[400], size: 18),
                       ],
                     ),

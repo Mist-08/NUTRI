@@ -8,6 +8,8 @@ import 'materias_screen.dart';
 import 'horario_screen.dart';
 import 'recommendation_screen.dart';
 import 'nutrition_stats_screen.dart';
+import 'chatbot_screen.dart';
+import 'budget_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -40,6 +42,8 @@ class MyApp extends StatelessWidget {
         '/materias':               (context) => const MateriasScreen(),
         '/recomendacion':          (context) => const RecommendationScreen(),
         '/estadisticas_nutricion': (context) => const NutritionStatsScreen(),
+        '/chatbot':                (context) => const ChatbotScreen(),
+        '/presupuesto':            (context) => const BudgetScreen(),
       },
       onGenerateRoute: (settings) {
         if (settings.name == '/horario') {
