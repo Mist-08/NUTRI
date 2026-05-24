@@ -55,12 +55,12 @@ def pick_meal_with_gemini(
                         regeneración produzca variedad real, no siempre lo mismo
 
     Returns:
-        Lista de Alimento elegidos por Gemini (subconjunto de candidatos),
-        o None si Gemini no está disponible / falló / devolvió algo inválido.
+        Tupla (lista de Alimento elegidos, razonamiento str). Si Gemini no
+        está disponible / falló / devolvió algo inválido, devuelve (None, "").
     """
     client = get_gemini_client()
     if not client.available or not candidatos:
-        return None
+        return None, ""
 
     # Limita el catálogo enviado al prompt para no inflar tokens.
     # Tomamos top-10 por score rule-based. En regeneración, mezclamos un poco
@@ -137,7 +137,7 @@ REGLAS DE SELECCIÓN OBLIGATORIAS:
 RESPONDE SOLO CON ESTE JSON, sin markdown, sin texto adicional:
 {{
   "ids_alimentos": [<lista de IDs ÚNICOS del catálogo>],
-  "razonamiento": "<1-2 frases en español explicando la elección>"
+  "razonamiento": "<MÁXIMO 25 palabras en español; por qué elegiste estos alimentos>"
 }}"""
 
     result = client.generate_json(
@@ -145,15 +145,15 @@ RESPONDE SOLO CON ESTE JSON, sin markdown, sin texto adicional:
         system=system_prompt,
         # Temperatura más alta en regeneración para más variedad real
         temperature=0.7 if fresh else 0.4,
-        max_tokens=512,
+        max_tokens=1024,   # holgado: evita cortar el JSON si el razonamiento se alarga
     )
 
     if not result or "ids_alimentos" not in result:
-        return None
+        return None, ""
 
     ids_elegidos = result.get("ids_alimentos", [])
     if not isinstance(ids_elegidos, list) or not ids_elegidos:
-        return None
+        return None, ""
 
     # Mapea IDs a objetos reales. DEDUPLICA preservando el orden de Gemini
     # (por si el modelo ignora la regla anti-duplicados).
@@ -179,17 +179,208 @@ RESPONDE SOLO CON ESTE JSON, sin markdown, sin texto adicional:
             "Gemini devolvió 0 IDs válidos para %s: %s",
             tipo_comida, ids_elegidos,
         )
-        return None
+        return None, ""
 
     # Logueamos el razonamiento para poder auditar elecciones en producción.
     razonamiento = result.get("razonamiento", "")
+    if not isinstance(razonamiento, str):
+        razonamiento = ""
+    razonamiento = razonamiento.strip()
     logger.info(
         "Gemini %s%s: eligió %s | razón: %s",
         tipo_comida, " (fresh)" if fresh else "",
         [a.id_alimento for a in elegidos], razonamiento[:200],
     )
 
-    return elegidos
+    return elegidos, razonamiento
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  MENÚ COMPLETO EN UNA SOLA LLAMADA
+# ══════════════════════════════════════════════════════════════════════
+
+# Claves JSON (sin acentos) ↔ tipo_comida del catálogo
+_KEY_POR_TIPO = {
+    "Desayuno": "desayuno",
+    "Almuerzo": "almuerzo",
+    "Cena":     "cena",
+    "Snack":    "snack",
+}
+
+
+def _formatear_candidatos(candidatos: list[models.Alimento], fresh: bool, top_n: int = 8) -> list[models.Alimento]:
+    """Recorta a top_n candidatos; si fresh, baraja para dar variedad."""
+    n = min(top_n, len(candidatos))
+    if fresh and len(candidatos) > 4:
+        cabeza = list(candidatos[:2])
+        resto = list(candidatos[2:n])
+        random.shuffle(resto)
+        return cabeza + resto
+    return candidatos[:n]
+
+
+def _linea_catalogo(a: models.Alimento) -> str:
+    etiquetas = []
+    if a.bueno_examen:     etiquetas.append("examen")
+    if a.alta_proteina:    etiquetas.append("altaProteina")
+    if a.alto_rendimiento: etiquetas.append("altoRendimiento")
+    if a.ligero:           etiquetas.append("ligero")
+    tags = " ".join(etiquetas) if etiquetas else "-"
+    return (
+        f"id={a.id_alimento} | {a.nombre} | "
+        f"{a.calorias}kcal P{a.proteinas:.0f}g C{a.carbohidratos:.0f}g G{a.grasas:.0f}g | "
+        f"${(a.costo_estimado or 0):.0f}MXN | {tags}"
+    )
+
+
+def pick_full_menu_with_gemini(
+    candidatos_por_tipo: dict,      # {"Desayuno": [Alimento,...], ...}
+    cal_meta_por_tipo: dict,        # {"Desayuno": 500, ...}
+    contexto: dict,
+    perfil: models.PerfilNutricional,
+    disliked_names: Optional[set] = None,
+    max_items: int = 1,
+    fresh: bool = False,
+) -> Optional[dict]:
+    """
+    Elige las 4 comidas del menú (Desayuno/Almuerzo/Cena/Snack) y redacta el
+    mensaje del día en UNA SOLA llamada a Gemini.
+
+    Returns:
+        dict {tipo: [Alimento,...], "_mensaje": str|None}, solo con las comidas
+        que Gemini resolvió correctamente. Devuelve None si Gemini no está
+        disponible o la respuesta fue inválida (el caller usa fallback por comida).
+    """
+    client = get_gemini_client()
+    if not client.available:
+        return None
+
+    tipos_con_candidatos = [t for t in ("Desayuno", "Almuerzo", "Cena", "Snack")
+                            if candidatos_por_tipo.get(t)]
+    if not tipos_con_candidatos:
+        return None
+
+    # Mapa global id→Alimento (para resolver los IDs que devuelva Gemini)
+    by_id: dict[int, models.Alimento] = {}
+    secciones = []
+    for tipo in tipos_con_candidatos:
+        seleccion = _formatear_candidatos(candidatos_por_tipo[tipo], fresh)
+        for a in seleccion:
+            by_id[a.id_alimento] = a
+        lineas = "\n".join(_linea_catalogo(a) for a in seleccion)
+        cal_meta = cal_meta_por_tipo.get(tipo, 0)
+        secciones.append(
+            f"=== {tipo.upper()} (objetivo ~{cal_meta} kcal) ===\n{lineas}"
+        )
+    catalogo = "\n\n".join(secciones)
+
+    disliked_section = ""
+    if disliked_names:
+        sample = list(disliked_names)[:15]
+        disliked_section = (
+            f"\nALIMENTOS QUE EL USUARIO RECHAZÓ ANTES (NO los incluyas):\n"
+            f"{', '.join(sample)}\n"
+        )
+
+    # Claves JSON esperadas (solo las comidas con candidatos)
+    keys = [_KEY_POR_TIPO[t] for t in tipos_con_candidatos]
+    ejemplo_keys = ",\n  ".join(f'"{k}": [<IDs>]' for k in keys)
+    razones_keys = ", ".join(f'"{k}": "<motivo breve>"' for k in keys)
+
+    system_prompt = (
+        "Eres un nutricionista virtual de NutriCampus AI para estudiantes "
+        "universitarios mexicanos. Armas un menú diario balanceado eligiendo "
+        "alimentos de un catálogo dado, respetando salud, presupuesto y carga "
+        "académica. Respondes SIEMPRE en JSON estricto y solo eliges IDs "
+        "presentes en el catálogo."
+    )
+
+    user_prompt = f"""Arma el MENÚ COMPLETO del día eligiendo EXACTAMENTE {max_items} alimento(s) por comida.
+
+CONTEXTO DEL USUARIO:
+- Objetivo: {perfil.objetivo or 'Mantener'}
+- Nivel de actividad: {perfil.nivel_actividad or 'Moderado'}
+- Tipo de día: {contexto.get('tipo_dia', 'normal')}
+- Dieta: {perfil.dieta or 'Sin restricciones'}
+- Nivel presupuesto: {perfil.nivel_presupuesto or 'medio'}
+- Tipo menú preferido: {perfil.tipo_menu_preferido or 'balanceado'}
+{disliked_section}
+CANDIDATOS POR COMIDA (ya filtrados por restricciones y alergias):
+{catalogo}
+
+REGLAS OBLIGATORIAS:
+1. Elige EXACTAMENTE {max_items} alimento(s) por comida, solo IDs del catálogo de ESA comida.
+2. No repitas el mismo alimento en comidas distintas.
+3. Acércate al objetivo de calorías de cada comida.
+4. Día "examen": prioriza tags "examen" y "ligero". Día "alta_carga": "altoRendimiento"/"altaProteina".
+5. Objetivo "Bajar peso": prioriza "ligero". "Subir masa"/"Mejorar rendimiento": prioriza "altaProteina".
+6. Si presupuesto=bajo, elige los más baratos sin sacrificar nutrición.
+7. El "mensaje": máx 3 frases, español de México tuteando, cálido y directo, sin emojis, sin saludos ni despedidas; conecta el menú con el tipo de día.
+8. En "razones": por cada comida, MÁXIMO 20 palabras explicando por qué elegiste ese alimento.
+
+RESPONDE SOLO CON ESTE JSON, sin markdown ni texto adicional:
+{{
+  {ejemplo_keys},
+  "razones": {{ {razones_keys} }},
+  "mensaje": "<mensaje del día>"
+}}"""
+
+    result = client.generate_json(
+        prompt=user_prompt,
+        system=system_prompt,
+        temperature=0.7 if fresh else 0.4,
+        max_tokens=3072,   # holgado: 4 comidas + 4 razones + mensaje sin cortar el JSON
+    )
+    if not result or not isinstance(result, dict):
+        return None
+
+    razones_in = result.get("razones") if isinstance(result.get("razones"), dict) else {}
+
+    salida: dict = {}
+    razones_out: dict = {}
+    for tipo in tipos_con_candidatos:
+        key = _KEY_POR_TIPO[tipo]
+        ids = result.get(key, [])
+        if not isinstance(ids, list):
+            continue
+        elegidos: list[models.Alimento] = []
+        seen: set[int] = set()
+        for i in ids:
+            if not isinstance(i, int) or i in seen or i not in by_id:
+                continue
+            # Respeta el tipo: el id debe pertenecer a ESTA comida
+            if by_id[i].tipo_comida != tipo:
+                continue
+            elegidos.append(by_id[i])
+            seen.add(i)
+            if len(elegidos) >= max_items:
+                break
+        if elegidos:
+            salida[tipo] = elegidos
+            r = razones_in.get(key)
+            if isinstance(r, str) and r.strip():
+                razones_out[tipo] = r.strip()
+
+    if not salida:
+        logger.warning("Gemini menú completo: 0 comidas válidas | result keys=%s", list(result.keys()))
+        return None
+
+    if razones_out:
+        salida["_razones"] = razones_out
+
+    mensaje = result.get("mensaje")
+    if isinstance(mensaje, str):
+        mensaje = mensaje.strip().strip('"\'').strip()
+        if 20 <= len(mensaje) <= 800:
+            salida["_mensaje"] = mensaje
+
+    logger.info(
+        "Gemini menú completo%s: %s | mensaje=%s",
+        " (fresh)" if fresh else "",
+        {t: [a.id_alimento for a in salida[t]] for t in salida if not t.startswith("_")},
+        "sí" if salida.get("_mensaje") else "no",
+    )
+    return salida
 
 
 # ══════════════════════════════════════════════════════════════════════

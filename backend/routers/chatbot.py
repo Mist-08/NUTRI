@@ -19,6 +19,7 @@ from routers.users import get_current_user
 from services.chatbot_context_builder import build_context
 from services.chatbot_service import process_message, get_suggestions
 from services.ai_chatbot import respond_with_gemini
+from services import chat_history_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chatbot", tags=["chatbot"])
@@ -41,18 +42,27 @@ def send_message(
 
     Pipeline:
     1. Construye contexto del usuario (perfil, menú, eventos, presupuesto).
-    2. Intenta responder con Gemini usando ese contexto.
-    3. Si Gemini falla, cae al dispatcher rule-based viejo.
+    2. Carga la memoria conversacional (mensajes previos de ESTE usuario).
+    3. Intenta responder con Gemini usando contexto + memoria.
+    4. Si Gemini falla, cae al dispatcher rule-based viejo.
+    5. Guarda el intercambio (mensaje del usuario + respuesta del bot) en BD.
     """
     try:
         ctx = build_context(db, current_user.id_usuario)
 
-        # Paso 1: intento con Gemini
-        ai_result = respond_with_gemini(db, request.message, ctx)
+        # Memoria: solo la conversación de este usuario (filtrada por id)
+        historial = chat_history_service.obtener_memoria(db, current_user.id_usuario)
+
+        # Paso 1: intento con Gemini (con memoria)
+        ai_result = respond_with_gemini(db, request.message, ctx, historial)
         if ai_result is not None:
             logger.info(
                 "Chatbot Gemini OK usuario=%d intent=%s",
                 current_user.id_usuario, ai_result.get("intent"),
+            )
+            chat_history_service.guardar_intercambio(
+                db, current_user.id_usuario,
+                request.message, ai_result.get("reply", ""), ai_result.get("intent"),
             )
             return schemas.ChatbotResponse(**ai_result)
 
@@ -62,6 +72,10 @@ def send_message(
             current_user.id_usuario, request.message[:80],
         )
         result = process_message(request.message, ctx)
+        chat_history_service.guardar_intercambio(
+            db, current_user.id_usuario,
+            request.message, result.get("reply", ""), result.get("intent"),
+        )
         return schemas.ChatbotResponse(**result)
 
     except Exception:
@@ -80,6 +94,47 @@ def send_message(
             related_menu=None,
             context_card=None,
         )
+
+
+@router.get("/history", response_model=schemas.ChatHistoryResponse)
+def get_chat_history(
+    current_user: models.Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Devuelve el historial de la conversación de ESTE usuario, en orden
+    cronológico. Solo mensajes del usuario autenticado (filtrado por id).
+    """
+    try:
+        mensajes = chat_history_service.obtener_historial(db, current_user.id_usuario)
+        return schemas.ChatHistoryResponse(
+            mensajes=[
+                schemas.ChatMensajeItem(
+                    rol=m.rol,
+                    texto=m.texto,
+                    intent=m.intent,
+                    fecha=m.fecha.isoformat() if m.fecha else None,
+                )
+                for m in mensajes
+            ]
+        )
+    except Exception:
+        logger.exception("Error en /chatbot/history usuario=%d", current_user.id_usuario)
+        return schemas.ChatHistoryResponse(mensajes=[])
+
+
+@router.delete("/history")
+def clear_chat_history(
+    current_user: models.Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Borra el historial de la conversación de ESTE usuario."""
+    try:
+        n = chat_history_service.limpiar_historial(db, current_user.id_usuario)
+        return {"borrados": n}
+    except Exception:
+        logger.exception("Error en DELETE /chatbot/history usuario=%d", current_user.id_usuario)
+        return {"borrados": 0}
 
 
 @router.get("/suggestions")

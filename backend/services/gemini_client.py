@@ -7,6 +7,12 @@ Filosofía de diseño:
 - Reintentos exponenciales para errores 429 (rate limit).
 - Saneamiento de JSON cuando Gemini devuelve markdown o texto truncado.
 - Una sola instancia compartida por proceso (singleton lazy).
+- thinking_budget=0: Gemini 2.5 Flash es un modelo "reasoning" que gasta
+  tokens pensando ANTES de responder, y esos tokens se cuentan contra
+  max_output_tokens. Con el default dinámico, en cualquier petición no
+  trivial el modelo quema casi todo el presupuesto pensando y devuelve
+  JSON truncado (p.ej. solo `{\n  "ids_alimentos":` y se corta).
+  Lo deshabilitamos para que TODO el presupuesto vaya a la respuesta real.
 
 Nota: el timeout NO se configura aquí (el SDK tiene bugs conocidos con eso).
 El caller que necesite timeout debe envolver la llamada con
@@ -35,6 +41,34 @@ except ImportError:
         "Las funciones de IA estarán deshabilitadas. "
         "Instálalo con: pip install google-genai"
     )
+
+
+def _build_thinking_config():
+    """
+    Devuelve un ThinkingConfig(thinking_budget=0) si el SDK lo soporta.
+
+    Si la versión instalada de google-genai no tiene ThinkingConfig, o su
+    firma cambió, devuelve None y simplemente no se deshabilita el thinking
+    (el código sigue funcionando, solo que con el comportamiento por defecto).
+    Esto evita acoplar el arranque a una versión específica del SDK.
+    """
+    if not _GENAI_AVAILABLE:
+        return None
+    if not hasattr(types, "ThinkingConfig"):
+        logger.info(
+            "El SDK de google-genai no expone ThinkingConfig; "
+            "se usa el comportamiento de thinking por defecto."
+        )
+        return None
+    try:
+        return types.ThinkingConfig(thinking_budget=0)
+    except Exception as e:  # firma distinta en alguna versión del SDK
+        logger.info("No se pudo construir ThinkingConfig(thinking_budget=0): %s", e)
+        return None
+
+
+# Se construye una sola vez al importar el módulo.
+_THINKING_CONFIG = _build_thinking_config()
 
 
 class GeminiClient:
@@ -69,6 +103,26 @@ class GeminiClient:
 
     # ── Generación de texto ───────────────────────────────────────────
 
+    def _make_config(self, config_kwargs: Dict[str, Any]):
+        """
+        Construye el GenerateContentConfig. Si el SDK instalado no acepta
+        'thinking_config' (versión vieja), lo quita y reintenta, en vez de
+        romper toda la generación.
+        """
+        try:
+            return types.GenerateContentConfig(**config_kwargs)
+        except TypeError as e:
+            if "thinking_config" in config_kwargs:
+                logger.info(
+                    "GenerateContentConfig no acepta thinking_config (%s); "
+                    "reintentando sin ese campo.", e,
+                )
+                config_kwargs = {
+                    k: v for k, v in config_kwargs.items() if k != "thinking_config"
+                }
+                return types.GenerateContentConfig(**config_kwargs)
+            raise
+
     def generate(
         self,
         prompt: str,
@@ -98,13 +152,19 @@ class GeminiClient:
             config_kwargs["system_instruction"] = system
         if json_mode:
             config_kwargs["response_mime_type"] = "application/json"
+        # Deshabilitar el "thinking" para que los tokens vayan a la respuesta
+        # real y no se trunque el JSON (ver docstring del módulo).
+        if _THINKING_CONFIG is not None:
+            config_kwargs["thinking_config"] = _THINKING_CONFIG
+
+        config = self._make_config(config_kwargs)
 
         for attempt in range(self.MAX_RETRIES + 1):
             try:
                 response = self._client.models.generate_content(
                     model=self.model_name,
                     contents=prompt,
-                    config=types.GenerateContentConfig(**config_kwargs),
+                    config=config,
                 )
                 text = (response.text or "").strip()
                 if not text:
@@ -145,15 +205,16 @@ class GeminiClient:
         prompt: str,
         system: Optional[str] = None,
         temperature: float = 0.3,
-        max_tokens: int = 2048,
+        max_tokens: int = 4096,
     ) -> Optional[Dict[str, Any]]:
         """
         Genera y parsea JSON. Devuelve None si falla en cualquier paso
         (generación, parseo o JSON inválido).
 
-        max_tokens por defecto sube a 2048 porque las respuestas JSON con
-        varios campos (reply + suggestions + ids) pueden truncarse a la
-        mitad si es muy bajo, dejando JSON inválido.
+        Con thinking_budget=0 el problema de truncado ya no debería ocurrir,
+        pero dejamos max_tokens holgado (4096) como red de seguridad. El
+        max_output_tokens es solo un tope: no se "gasta" si la respuesta es
+        corta, así que ponerlo alto no tiene costo extra.
         """
         text = self.generate(
             prompt=prompt,

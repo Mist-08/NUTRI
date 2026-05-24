@@ -163,10 +163,11 @@ class _NutritionStatsScreenState extends State<NutritionStatsScreen> {
   }
 
   Widget _buildSummaryCards() {
-    final menusGenerados  = (_stats!['menus_generados']   as num?)?.toInt()    ?? 0;
-    final menusConsumidos = (_stats!['menus_consumidos']  as num?)?.toInt()    ?? 0;
-    final tasaCumplimiento = (_stats!['tasa_cumplimiento'] as num?)?.toDouble() ?? 0.0;
-    final promedioCalorias = (_stats!['promedio_calorias'] as num?)?.toDouble() ?? 0.0;
+    final menusGenerados     = (_stats!['menus_generados']     as num?)?.toInt()    ?? 0;
+    final comidasConsumidas  = (_stats!['comidas_consumidas']  as num?)?.toInt()    ?? 0;
+    final comidasTotales     = (_stats!['comidas_totales']     as num?)?.toInt()    ?? 0;
+    final tasaCumplimiento   = (_stats!['tasa_cumplimiento']   as num?)?.toDouble() ?? 0.0;
+    final promedioCalorias   = (_stats!['promedio_calorias']   as num?)?.toDouble() ?? 0.0;
 
     final pct = (tasaCumplimiento * 100).round();
     final Color cumplimientoColor = pct >= 80
@@ -191,9 +192,11 @@ class _NutritionStatsScreenState extends State<NutritionStatsScreen> {
             const SizedBox(width: 12),
             Expanded(
               child: _StatsCard(
-                label: 'Consumidos',
-                value: '$menusConsumidos',
-                subtitle: 'de $menusGenerados generados',
+                label: 'Consumidas',
+                value: '$comidasConsumidas',
+                subtitle: comidasTotales > 0
+                    ? 'de $comidasTotales comidas'
+                    : 'sin comidas aún',
                 icon: Icons.check_circle_outline_rounded,
                 color: Colors.teal,
               ),

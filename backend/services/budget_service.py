@@ -5,7 +5,7 @@ Gestiona la configuración de presupuesto del usuario y calcula
 estadísticas de gasto en base al historial de menús.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timezone, timedelta
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -46,6 +46,10 @@ def update_budget(
         perfil.nivel_presupuesto = data.nivel_presupuesto
     if data.tipo_menu_preferido is not None:
         perfil.tipo_menu_preferido = data.tipo_menu_preferido
+
+    # Marca el perfil como actualizado para que el menú del día se regenere
+    # con el nuevo presupuesto la próxima vez que se consulte.
+    perfil.fecha_actualizacion = datetime.now(timezone.utc)
 
     db.commit()
     db.refresh(perfil)

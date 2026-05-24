@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 from jose import JWTError
+from datetime import datetime, timezone
 
 import models, schemas, auth
 from database import get_db
@@ -125,6 +126,10 @@ async def save_perfil(
             **perfil_data.model_dump()
         )
         db.add(perfil)
+
+    # Marca actualización para que el menú del día se regenere con los datos
+    # nuevos (calorías, dieta, objetivo, etc.) la próxima vez que se consulte.
+    perfil.fecha_actualizacion = datetime.now(timezone.utc)
 
     db.commit()
     db.refresh(perfil)

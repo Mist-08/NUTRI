@@ -3,13 +3,33 @@ Servicio CRUD para MenuDiario y RegistroNutricion.
 Centraliza la lógica de negocio separada de los routers.
 """
 
-from datetime import date, timedelta
+import json
+import logging
+from datetime import date, datetime, timezone, timedelta
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
 import models
-from services.recommendation_engine import MotorRecomendacion
+from services.recommendation_engine import MotorRecomendacion, MAX_ITEMS_POR_COMIDA
+from services import meal_service
+
+logger = logging.getLogger(__name__)
+
+_CAMPOS_MENU = ("desayuno", "almuerzo", "cena", "snacks")
+
+
+def _as_aware(dt: datetime) -> datetime:
+    """
+    Normaliza un datetime a timezone-aware (UTC) para poder compararlo sin
+    el error 'can't compare offset-naive and offset-aware datetimes'.
+
+    PostgreSQL (columna timezone=True) devuelve fechas aware, pero algún dato
+    viejo podría venir naive. Si es naive, se asume UTC.
+    """
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 # ── Menús diarios ─────────────────────────────────────────────────
@@ -27,6 +47,41 @@ def get_menu_hoy(db: Session, id_usuario: int, fecha: Optional[date] = None) -> 
     )
 
 
+def _menu_desactualizado(menu: models.MenuDiario, perfil: models.PerfilNutricional) -> bool:
+    """
+    Decide si un menú guardado quedó obsoleto y debe regenerarse.
+
+    Se considera obsoleto si:
+    1. Alguna comida tiene MÁS items de los configurados ahora
+       (p.ej. menús viejos guardados con 3 alimentos cuando ahora se usa 1).
+    2. El perfil se actualizó DESPUÉS de generarse el menú (cambió presupuesto,
+       calorías, dieta, objetivo, etc.) → el menú ya no refleja la config actual.
+
+    Si el menú ya consumido (consumido=True) NO se regenera, para no borrar
+    lo que el usuario marcó como comido.
+    """
+    if getattr(menu, "consumido", False):
+        return False
+
+    # 1. Demasiados items por comida (config cambió a menos opciones)
+    for campo in _CAMPOS_MENU:
+        raw = getattr(menu, campo, None) or "[]"
+        try:
+            n = len(json.loads(raw))
+        except (json.JSONDecodeError, TypeError):
+            n = 0
+        if n > MAX_ITEMS_POR_COMIDA:
+            return True
+
+    # 2. Perfil actualizado después de generar el menú
+    gen = getattr(menu, "fecha_generacion", None)
+    upd = getattr(perfil, "fecha_actualizacion", None)
+    if gen is not None and upd is not None and _as_aware(upd) > _as_aware(gen):
+        return True
+
+    return False
+
+
 def get_or_generate_menu(
     db: Session,
     usuario: models.Usuario,
@@ -38,8 +93,19 @@ def get_or_generate_menu(
     """
     target = fecha or date.today()
     existing = get_menu_hoy(db, usuario.id_usuario, target)
-    if existing:
+    if existing and not _menu_desactualizado(existing, perfil):
         return existing
+
+    # No hay menú, o el guardado quedó obsoleto (config/presupuesto cambió,
+    # o tiene más items de los que ahora se muestran) → regenerar.
+    if existing:
+        logger.info(
+            "Menú de %s desactualizado para usuario=%s; regenerando.",
+            target, usuario.id_usuario,
+        )
+        _detach_menu_references(db, existing.id_menu)
+        db.delete(existing)
+        db.commit()
 
     motor = MotorRecomendacion(db)
     return motor.generar_para_usuario(usuario, perfil, target)
@@ -70,6 +136,31 @@ def generate_fresh_menu(
 
     motor = MotorRecomendacion(db)
     return motor.generar_para_usuario(usuario, perfil, target, fresh=True)
+
+
+def regenerate_single_meal(
+    db: Session,
+    usuario: models.Usuario,
+    perfil: models.PerfilNutricional,
+    comida: str,
+    fecha: Optional[date] = None,
+) -> models.MenuDiario:
+    """
+    Regenera una sola comida ('desayuno'|'almuerzo'|'cena'|'snacks') del menú
+    del día indicado, conservando las demás comidas.
+
+    Si todavía no existe un menú para esa fecha, genera el menú completo
+    (no tiene sentido refrescar una comida de un menú inexistente).
+    """
+    target = fecha or date.today()
+    motor = MotorRecomendacion(db)
+
+    existing = get_menu_hoy(db, usuario.id_usuario, target)
+    if existing is None:
+        # No hay menú aún → generamos uno completo
+        return motor.generar_para_usuario(usuario, perfil, target, fresh=True)
+
+    return motor.regenerar_comida(usuario, perfil, existing, comida)
 
 
 def _detach_menu_references(db: Session, id_menu: int) -> None:
@@ -186,24 +277,52 @@ def delete_menu(db: Session, id_menu: int, id_usuario: int) -> bool:
 def calcular_estadisticas(db: Session, id_usuario: int) -> dict:
     """
     Calcula estadísticas de la semana actual (últimos 7 días).
+
+    A partir de la migración a consumo por comida, el cumplimiento se mide
+    contando comidas individuales (desayuno/almuerzo/cena/snacks) en vez
+    de menús completos. Un menú solo era "consumido" si TODAS sus comidas
+    lo estaban, lo cual era demasiado estricto en la práctica.
+
+    - `comidas_consumidas`: total de comidas marcadas como consumidas en los
+      últimos 7 días.
+    - `comidas_totales`: total de comidas con items en esos menús (los
+      campos vacíos no cuentan; un menú sin snacks no penaliza).
+    - `tasa_cumplimiento`: comidas_consumidas / comidas_totales.
+    - `promedio_calorias`: promedio diario de calorías realmente consumidas
+      (solo de las comidas marcadas, no del menú entero). Solo entran al
+      promedio los días en los que se consumió al menos una comida.
     """
     historial = get_historial(db, id_usuario, dias=7)
 
-    total    = len(historial)
-    consumidos = sum(1 for m in historial if m.consumido)
+    total = len(historial)
+    comidas_consumidas = 0
+    comidas_totales    = 0
+    cals_consumidas: list[int] = []
 
-    cals_consumidas = [
-        m.calorias_total or 0
-        for m in historial
-        if m.consumido and m.calorias_total
-    ]
-    promedio = int(sum(cals_consumidas) / len(cals_consumidas)) if cals_consumidas else 0
-    tasa     = round(consumidos / total, 2) if total else 0.0
+    for m in historial:
+        c, t = meal_service.contar_comidas(m)
+        comidas_consumidas += c
+        comidas_totales    += t
+
+        progreso = meal_service.calcular_progreso(m)
+        cals_dia = progreso["consumido"]["calorias"]
+        if cals_dia > 0:
+            cals_consumidas.append(cals_dia)
+
+    tasa = (
+        round(comidas_consumidas / comidas_totales, 2)
+        if comidas_totales else 0.0
+    )
+    promedio = (
+        int(sum(cals_consumidas) / len(cals_consumidas))
+        if cals_consumidas else 0
+    )
 
     return {
-        "menus_generados":   total,
-        "menus_consumidos":  consumidos,
-        "tasa_cumplimiento": tasa,
-        "promedio_calorias": promedio,
-        "historial":         historial,
+        "menus_generados":     total,
+        "comidas_consumidas":  comidas_consumidas,
+        "comidas_totales":     comidas_totales,
+        "tasa_cumplimiento":   tasa,
+        "promedio_calorias":   promedio,
+        "historial":           historial,
     }

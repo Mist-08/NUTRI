@@ -19,7 +19,7 @@ import json
 import random
 import logging
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timezone, timedelta
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -38,6 +38,21 @@ _CAL_DIST = {
     "Cena":     0.30,
     "Snack":    0.10,
 }
+
+# Mapeo entre el campo del menú/frontend (minúsculas) y el tipo_comida del
+# catálogo de alimentos (capitalizado). El frontend manda 'snacks' pero el
+# catálogo usa 'Snack'.
+_TIPO_POR_CAMPO = {
+    "desayuno": "Desayuno",
+    "almuerzo": "Almuerzo",
+    "cena":     "Cena",
+    "snacks":   "Snack",
+}
+_CAMPOS_MENU = ("desayuno", "almuerzo", "cena", "snacks")
+
+# Cuántos alimentos mostrar por comida. 1 = una sola opción por comida; si el
+# usuario quiere otra, usa el botón de refresh de esa comida.
+MAX_ITEMS_POR_COMIDA = 1
 
 # Ajuste calórico según tipo de día
 _CAL_FACTOR = {
@@ -114,6 +129,11 @@ class MotorRecomendacion:
         self._ia_used: bool = False
         # Flag para señalar a Gemini que es regeneración → más variedad
         self._fresh: bool = False
+        # Mensaje generado por Gemini en la MISMA llamada del menú completo
+        # (si está, _generar_mensaje lo usa y no hace otra llamada).
+        self._ai_mensaje: Optional[str] = None
+        # Razonamientos por comida {tipo: texto} de la llamada del menú completo
+        self._ai_razones: dict = {}
 
     # ── API pública ────────────────────────────────────────────────
 
@@ -137,6 +157,8 @@ class MotorRecomendacion:
 
         self._ia_used = False
         self._fresh = fresh
+        self._ai_mensaje = None
+        self._ai_razones = {}
 
         # Cargar feedback del usuario para excluir lo que rechazó antes
         disliked_ids   = self._get_disliked_ids(usuario.id_usuario)
@@ -148,14 +170,13 @@ class MotorRecomendacion:
         alimentos   = self._obtener_alimentos()
         disponibles = self._filtrar_por_restricciones(alimentos, perfil, disliked_ids)
 
-        # ── Selección paralela de las 4 comidas ────────────────────
+        # ── Selección del menú completo en UNA sola llamada a Gemini ─
         #
-        # Llamar a Gemini 4 veces en serie tomaría ~4-12 segundos por menú.
-        # Paralelizamos: el tiempo total queda ~igual al de la llamada más
-        # lenta, no la suma. Si alguna comida individual se cuelga más de
-        # GEMINI_TIMEOUT, esa cae al fallback rule-based sin afectar las
-        # otras 3.
-        desayuno, almuerzo, cena, snacks = self._seleccionar_todas_comidas_paralelo(
+        # Antes se hacían 4-5 llamadas (una por comida + el mensaje), lo que
+        # agotaba rápido la cuota del free tier. Ahora una sola llamada
+        # devuelve las 4 comidas + el mensaje del día. Si Gemini falla, cada
+        # comida cae al fallback rule-based sin afectar a las demás.
+        desayuno, almuerzo, cena, snacks = self._seleccionar_menu_completo(
             disponibles, cal_obj, contexto, perfil, disliked_names,
         )
 
@@ -208,12 +229,219 @@ class MotorRecomendacion:
             costo_total_estimado = costo_total if costo_total > 0 else None,
             dentro_presupuesto   = dentro_ppto,
             generado_con_ia      = self._ia_used,
+            fecha_generacion     = datetime.now(timezone.utc),
+            razonamiento_comidas = json.dumps(self._ai_razones, ensure_ascii=False) if self._ai_razones else None,
         )
 
         self.db.add(menu)
         self.db.commit()
         self.db.refresh(menu)
         return menu
+
+    # ── Regenerar una sola comida (refresh granular) ───────────────
+
+    def regenerar_comida(
+        self,
+        usuario: models.Usuario,
+        perfil: models.PerfilNutricional,
+        menu: models.MenuDiario,
+        campo: str,
+    ) -> models.MenuDiario:
+        """
+        Regenera UNA sola comida de un menú existente (p.ej. solo la cena),
+        dejando las otras 3 intactas, y vuelve a guardar el menú.
+
+        Ventajas sobre regenerar todo el menú:
+        - Solo 1 llamada a Gemini en vez de 4-5 → mucho más rápido y dentro
+          del timeout del frontend.
+        - El usuario conserva las comidas que sí le gustaron.
+
+        Args:
+            campo: uno de 'desayuno' | 'almuerzo' | 'cena' | 'snacks'.
+        """
+        campo = (campo or "").strip().lower()
+        if campo not in _TIPO_POR_CAMPO:
+            raise ValueError(
+                f"Comida inválida: '{campo}'. Usa una de: {', '.join(_CAMPOS_MENU)}"
+            )
+        tipo = _TIPO_POR_CAMPO[campo]
+
+        # Al refrescar siempre buscamos variedad real
+        self._fresh = True
+        # Partimos del estado de IA previo del menú; si Gemini participa, sube a True
+        self._ia_used = bool(menu.generado_con_ia)
+
+        disliked_ids   = self._get_disliked_ids(usuario.id_usuario)
+        disliked_names = self._get_disliked_names(usuario.id_usuario, disliked_ids)
+
+        # Contexto: reusar el guardado en el menú; si no se puede, re-analizar
+        contexto: Optional[dict] = None
+        if menu.contexto:
+            try:
+                contexto = json.loads(menu.contexto)
+            except (json.JSONDecodeError, TypeError):
+                contexto = None
+        if contexto is None:
+            contexto = self._analizar_contexto(usuario.id_usuario, menu.fecha)
+
+        cal_obj = menu.calorias_objetivo or self._calcular_calorias_objetivo(perfil, contexto)
+
+        alimentos   = self._obtener_alimentos()
+        disponibles = self._filtrar_por_restricciones(alimentos, perfil, disliked_ids)
+
+        candidatos, cal_meta = self._rankear_candidatos(
+            disponibles, tipo, cal_obj, contexto, perfil,
+        )
+
+        # Evitar repetir alimentos que ya están en las OTRAS comidas del menú
+        ids_otras = self._ids_en_otras_comidas(menu, excepto=campo)
+        candidatos_sin_repetir = [c for c in candidatos if c.id_alimento not in ids_otras]
+        # Si excluir deja la lista vacía, usamos los candidatos originales
+        candidatos = candidatos_sin_repetir or candidatos
+
+        # Boost de favoritos: si el usuario tiene comidas favoritas de este tipo,
+        # los alimentos de esas favoritas suben al frente del ranking.
+        candidatos = self._aplicar_boost_favoritos(usuario.id_usuario, campo, candidatos)
+
+        if not candidatos:
+            # Sin candidatos para este tipo de comida: dejamos la comida vacía
+            nueva: list[models.Alimento] = []
+            razonamiento = ""
+        else:
+            ai_pick, razonamiento = ai_recommendation.pick_meal_with_gemini(
+                candidatos=candidatos,
+                tipo_comida=tipo,
+                cal_meta=cal_meta,
+                contexto=contexto,
+                perfil=perfil,
+                disliked_names=disliked_names,
+                max_items=MAX_ITEMS_POR_COMIDA,
+                fresh=True,
+            )
+            if ai_pick:
+                self._ia_used = True
+                nueva = ai_pick
+            else:
+                # Sin Gemini el greedy es determinístico y devolvería siempre lo
+                # mismo. Barajamos los mejores candidatos para que el refresh
+                # varíe igual (manteniendo la pertinencia del ranking).
+                nueva = self._seleccionar_greedy(
+                    self._barajar_top(candidatos), cal_meta,
+                )
+                razonamiento = ""
+
+        # Escribir SOLO este campo del menú
+        setattr(
+            menu, campo,
+            json.dumps([self._alimento_a_dict(a) for a in nueva], ensure_ascii=False),
+        )
+
+        # Guardar/actualizar el razonamiento de esta comida (por qué cambió)
+        self._set_razonamiento_comida(menu, campo, razonamiento)
+
+        # Recalcular totales y costo con las 4 comidas ya actualizadas
+        totales, costo_total = self._totales_desde_menu_json(menu)
+        menu.calorias_total      = totales["calorias"]
+        menu.proteinas_total     = totales["proteinas"]
+        menu.grasas_total        = totales["grasas"]
+        menu.carbohidratos_total = totales["carbohidratos"]
+        menu.costo_total_estimado = costo_total if costo_total > 0 else None
+
+        presupuesto = perfil.presupuesto_diario
+        if presupuesto and costo_total > 0:
+            menu.dentro_presupuesto = costo_total <= presupuesto
+        menu.generado_con_ia = self._ia_used
+
+        self.db.commit()
+        self.db.refresh(menu)
+        return menu
+
+    def _set_razonamiento_comida(self, menu: models.MenuDiario, campo: str, texto: str) -> None:
+        """Guarda/actualiza el razonamiento de una comida en menu.razonamiento_comidas (JSON dict)."""
+        try:
+            data = json.loads(menu.razonamiento_comidas) if menu.razonamiento_comidas else {}
+            if not isinstance(data, dict):
+                data = {}
+        except (json.JSONDecodeError, TypeError):
+            data = {}
+        if texto:
+            data[campo] = texto
+        else:
+            data.pop(campo, None)   # sin razonamiento (fallback) → limpiar el viejo
+        menu.razonamiento_comidas = json.dumps(data, ensure_ascii=False) if data else None
+
+    def _aplicar_boost_favoritos(self, id_usuario: int, campo: str, candidatos: list) -> list:
+        """
+        Reordena candidatos poniendo al frente los alimentos que aparecen en las
+        comidas favoritas del usuario para este tipo. No filtra (no descarta
+        nada), solo prioriza, para que el refresh tienda a reproponer lo que le
+        gustó sin perder variedad.
+        """
+        try:
+            from services import meal_service
+            fav_ids = meal_service.ids_favoritos_por_tipo(self.db, id_usuario, campo)
+        except Exception:
+            fav_ids = set()
+        if not fav_ids:
+            return candidatos
+        favoritos = [c for c in candidatos if c.id_alimento in fav_ids]
+        resto     = [c for c in candidatos if c.id_alimento not in fav_ids]
+        return favoritos + resto
+
+    def _barajar_top(self, candidatos: list, top_n: int = 8) -> list:
+        """
+        Baraja los primeros `top_n` candidatos (los mejor rankeados) y deja el
+        resto en orden. Da variedad al refrescar una comida sin Gemini, sin
+        perder pertinencia (no mete candidatos malos al frente).
+        """
+        if len(candidatos) <= 1:
+            return list(candidatos)
+        cabeza = list(candidatos[:top_n])
+        cola   = list(candidatos[top_n:])
+        random.shuffle(cabeza)
+        return cabeza + cola
+
+    def _ids_en_otras_comidas(self, menu: models.MenuDiario, excepto: str) -> set[int]:
+        """Devuelve los id_alimento presentes en las comidas del menú salvo `excepto`."""
+        ids: set[int] = set()
+        for campo in _CAMPOS_MENU:
+            if campo == excepto:
+                continue
+            raw = getattr(menu, campo, None) or "[]"
+            try:
+                for it in json.loads(raw):
+                    aid = it.get("id_alimento")
+                    if aid is not None:
+                        ids.add(aid)
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                continue
+        return ids
+
+    def _totales_desde_menu_json(self, menu: models.MenuDiario) -> tuple[dict, float]:
+        """
+        Suma calorías/macros/costo leyendo los 4 campos JSON del menú.
+        Se usa tras regenerar una comida individual, sin reconstruir objetos ORM.
+        """
+        cal = prot = gras = carb = costo = 0.0
+        for campo in _CAMPOS_MENU:
+            raw = getattr(menu, campo, None) or "[]"
+            try:
+                items = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                items = []
+            for it in items:
+                cal   += it.get("calorias", 0) or 0
+                prot  += it.get("proteinas", 0) or 0
+                gras  += it.get("grasas", 0) or 0
+                carb  += it.get("carbohidratos", 0) or 0
+                costo += it.get("costo_estimado", 0) or 0
+        totales = {
+            "calorias":      int(cal),
+            "proteinas":     round(prot, 1),
+            "grasas":        round(gras, 1),
+            "carbohidratos": round(carb, 1),
+        }
+        return totales, round(costo, 2)
 
     # ── Feedback / Dislikes ────────────────────────────────────────
 
@@ -417,11 +645,103 @@ class MotorRecomendacion:
 
         return True
 
-    # ── Selección de alimentos (paralelizada) ──────────────────────
+    # ── Selección de alimentos ─────────────────────────────────────
 
     # Tiempo máximo por comida en la llamada a Gemini (segundos).
     # Si Gemini tarda más, esa comida cae al fallback rule-based.
     GEMINI_TIMEOUT_PER_MEAL = 12.0
+
+    # Tiempo máximo para la llamada del menú completo (1 sola llamada).
+    GEMINI_TIMEOUT_MENU = 18.0
+
+    def _seleccionar_menu_completo(
+        self,
+        disponibles: list[models.Alimento],
+        cal_obj: int,
+        contexto: dict,
+        perfil: models.PerfilNutricional,
+        disliked_names: Optional[set[str]] = None,
+    ) -> tuple[list, list, list, list]:
+        """
+        Selecciona las 4 comidas en UNA sola llamada a Gemini (en vez de 4-5).
+
+        1. Rankea candidatos por comida (rápido, en serie, rule-based).
+        2. Una llamada a Gemini elige las 4 comidas + escribe el mensaje del día.
+        3. Comidas que Gemini no resolvió (o si Gemini falla del todo) caen al
+           fallback greedy rule-based.
+
+        Devuelve (desayuno, almuerzo, cena, snacks). El mensaje del día queda
+        en self._ai_mensaje para que _generar_mensaje lo use sin otra llamada.
+        """
+        tipos = ("Desayuno", "Almuerzo", "Cena", "Snack")
+
+        # Paso 1: rankear candidatos por comida (rápido)
+        candidatos_por_tipo: dict[str, list[models.Alimento]] = {}
+        cal_meta_por_tipo: dict[str, int] = {}
+        for tipo in tipos:
+            candidatos, cal_meta = self._rankear_candidatos(
+                disponibles, tipo, cal_obj, contexto, perfil,
+            )
+            candidatos_por_tipo[tipo] = candidatos
+            cal_meta_por_tipo[tipo] = cal_meta
+
+        # Paso 2: UNA llamada a Gemini para todo el menú (con timeout)
+        ai_menu: Optional[dict] = None
+        if any(candidatos_por_tipo.values()):
+            try:
+                with ThreadPoolExecutor(max_workers=1, thread_name_prefix="gemini-menu") as ex:
+                    future = ex.submit(
+                        ai_recommendation.pick_full_menu_with_gemini,
+                        candidatos_por_tipo=candidatos_por_tipo,
+                        cal_meta_por_tipo=cal_meta_por_tipo,
+                        contexto=contexto,
+                        perfil=perfil,
+                        disliked_names=disliked_names,
+                        max_items=MAX_ITEMS_POR_COMIDA,
+                        fresh=self._fresh,
+                    )
+                    ai_menu = future.result(timeout=self.GEMINI_TIMEOUT_MENU)
+            except FuturesTimeout:
+                logger.warning(
+                    "Gemini timeout en menú completo (>%.0fs), usando fallback rule-based",
+                    self.GEMINI_TIMEOUT_MENU,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Gemini error en menú completo: %s, usando fallback rule-based", e,
+                )
+
+        # Paso 3: armar selección final (Gemini si resolvió esa comida, si no greedy)
+        seleccion: dict[str, list[models.Alimento]] = {}
+        for tipo in tipos:
+            elegidos = ai_menu.get(tipo) if ai_menu else None
+            if elegidos:
+                self._ia_used = True
+                seleccion[tipo] = elegidos
+            else:
+                seleccion[tipo] = self._seleccionar_greedy(
+                    candidatos_por_tipo[tipo], cal_meta_por_tipo[tipo],
+                )
+
+        # Mensaje del día generado en la misma llamada (si vino)
+        if ai_menu and ai_menu.get("_mensaje"):
+            self._ai_mensaje = ai_menu["_mensaje"]
+        # Razonamientos por comida (mapeados a los campos del menú)
+        if ai_menu and ai_menu.get("_razones"):
+            tipo_a_campo = {v: k for k, v in _TIPO_POR_CAMPO.items()}
+            for tipo, texto in ai_menu["_razones"].items():
+                campo = tipo_a_campo.get(tipo)
+                if campo:
+                    self._ai_razones[campo] = texto
+
+        return (
+            seleccion["Desayuno"],
+            seleccion["Almuerzo"],
+            seleccion["Cena"],
+            seleccion["Snack"],
+        )
+
+    # ── Selección de alimentos (paralelizada — respaldo) ───────────
 
     def _seleccionar_todas_comidas_paralelo(
         self,
@@ -570,9 +890,10 @@ class MotorRecomendacion:
         self,
         candidatos: list[models.Alimento],
         cal_meta: int,
+        max_items: int = MAX_ITEMS_POR_COMIDA,
     ) -> list[models.Alimento]:
         """
-        Selección rule-based simple: greedy hasta 3 alimentos o hasta
+        Selección rule-based simple: greedy hasta `max_items` alimentos o hasta
         acercarse al objetivo calórico. Usado como fallback cuando Gemini
         no responde.
         """
@@ -580,7 +901,7 @@ class MotorRecomendacion:
         restante = cal_meta
 
         for alimento in candidatos:
-            if len(seleccionados) >= 3:
+            if len(seleccionados) >= max_items:
                 break
             if alimento.calorias <= restante + 80:   # margen de ±80 kcal
                 seleccionados.append(alimento)
@@ -762,38 +1083,17 @@ class MotorRecomendacion:
         """
         Genera el mensaje del día para el menú.
 
-        Intenta primero con Gemini (mensaje personalizado y cálido).
-        Si Gemini falla, no está disponible, o tarda más de
-        GEMINI_TIMEOUT_MESSAGE segundos, usa los templates estáticos.
+        Si el menú completo se generó con Gemini, el mensaje YA vino en esa
+        misma llamada (self._ai_mensaje) → lo usamos sin gastar otra llamada.
+        Si no hay mensaje de IA (Gemini no participó), usamos los templates
+        estáticos. Así un menú completo cuesta UNA sola llamada a Gemini.
         """
-        # Intento 1: Gemini con timeout (no queremos esperar 30 segundos
-        # solo por el mensaje si la red está lenta)
-        if menu_items:
-            ai_msg = None
-            try:
-                with ThreadPoolExecutor(max_workers=1, thread_name_prefix="gemini-msg") as ex:
-                    future = ex.submit(
-                        ai_recommendation.generate_personalized_message,
-                        perfil=perfil,
-                        contexto=contexto,
-                        menu_items=menu_items,
-                        costo_total=costo_total,
-                        dentro_presupuesto=dentro_presupuesto,
-                    )
-                    ai_msg = future.result(timeout=self.GEMINI_TIMEOUT_MESSAGE)
-            except FuturesTimeout:
-                logger.warning(
-                    "Gemini timeout en mensaje (>%.0fs), usando fallback estático",
-                    self.GEMINI_TIMEOUT_MESSAGE,
-                )
-            except Exception as e:
-                logger.warning("Gemini error en mensaje: %s, usando fallback estático", e)
+        # Mensaje generado en la misma llamada del menú completo
+        if self._ai_mensaje:
+            self._ia_used = True
+            return self._ai_mensaje
 
-            if ai_msg:
-                self._ia_used = True
-                return ai_msg
-
-        # Intento 2: fallback estático (lógica original)
+        # Fallback estático (lógica original) — sin llamadas extra a Gemini
         tipo_dia = contexto.get("tipo_dia", "normal")
         msg = _MENSAJES.get(tipo_dia, _MENSAJES["normal"])
         msg += _MSG_OBJETIVO.get(perfil.objetivo or "Mantener", "")

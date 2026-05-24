@@ -1,11 +1,13 @@
 """
 Endpoints de recomendaciones nutricionales.
 
-GET  /recommendations/today    → Menú del día (genera si no existe)
-POST /recommendations/generate → Fuerza regeneración del menú del día
-POST /recommendations/feedback → Registra like/dislike de un alimento del menú.
-                                  Si tipo=dislike y regenerar=true, regenera
-                                  el menú excluyendo el alimento rechazado.
+GET  /recommendations/today          → Menú del día (genera si no existe)
+POST /recommendations/generate        → Fuerza regeneración del menú del día
+POST /recommendations/regenerate-meal → Regenera una sola comida del menú
+                                        (desayuno/almuerzo/cena/snacks)
+POST /recommendations/feedback        → Registra like/dislike de un alimento del menú.
+                                        Si tipo=dislike y regenerar=true, regenera
+                                        el menú excluyendo el alimento rechazado.
 """
 
 import logging
@@ -86,6 +88,31 @@ async def generate_recommendation(
     perfil    = _get_perfil_o_error(db, current_user.id_usuario)
     fecha_obj = _parse_fecha(request.fecha)
     menu      = menu_service.generate_fresh_menu(db, current_user, perfil, fecha_obj)
+    return schemas.MenuDiarioResponse.model_validate(menu)
+
+
+@router.post("/regenerate-meal", response_model=schemas.MenuDiarioResponse)
+async def regenerate_meal(
+    request: schemas.RegenerarComidaRequest,
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(get_current_user),
+):
+    """
+    Regenera UNA sola comida del menú del día (desayuno/almuerzo/cena/snacks),
+    conservando las demás. Más rápido e interactivo que regenerar todo:
+    solo hace 1 llamada a Gemini en vez de las 4-5 del menú completo.
+    """
+    perfil    = _get_perfil_o_error(db, current_user.id_usuario)
+    fecha_obj = _parse_fecha(request.fecha)
+    try:
+        menu = menu_service.regenerate_single_meal(
+            db, current_user, perfil, request.comida, fecha_obj,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        )
     return schemas.MenuDiarioResponse.model_validate(menu)
 
 

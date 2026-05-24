@@ -38,6 +38,7 @@ def respond_with_gemini(
     db: Session,
     user_message: str,
     ctx: dict,
+    historial: Optional[list[dict]] = None,
 ) -> Optional[dict]:
     """
     Genera una respuesta del chatbot usando Gemini con el contexto del usuario.
@@ -46,6 +47,8 @@ def respond_with_gemini(
         db:           sesión activa de SQLAlchemy (para consultar alimentos)
         user_message: el mensaje del usuario
         ctx:          dict construido por chatbot_context_builder.build_context
+        historial:    lista [{rol, texto}] de mensajes previos de ESTE usuario,
+                      en orden cronológico, para darle memoria a la conversación.
 
     Returns:
         Dict con shape de schemas.ChatbotResponse, o None si Gemini falla
@@ -54,7 +57,7 @@ def respond_with_gemini(
     """
     try:
         with ThreadPoolExecutor(max_workers=1, thread_name_prefix="gemini-chat") as ex:
-            future = ex.submit(_respond_with_gemini_blocking, db, user_message, ctx)
+            future = ex.submit(_respond_with_gemini_blocking, db, user_message, ctx, historial)
             return future.result(timeout=CHATBOT_TIMEOUT)
     except FuturesTimeout:
         logger.warning(
@@ -71,6 +74,7 @@ def _respond_with_gemini_blocking(
     db: Session,
     user_message: str,
     ctx: dict,
+    historial: Optional[list[dict]] = None,
 ) -> Optional[dict]:
     """Implementación bloqueante (llamada desde el hilo del executor)."""
     client = get_gemini_client()
@@ -97,10 +101,14 @@ def _respond_with_gemini_blocking(
     # Construir el contexto compacto para el prompt
     prompt_context = _build_prompt_context(db, ctx)
 
+    # Memoria conversacional: los últimos mensajes de ESTE usuario, para que
+    # el bot entienda seguimientos ("¿y eso cuántas calorías tiene?").
+    conversacion = _format_historial(historial)
+
     system_prompt = _SYSTEM_PROMPT
     user_prompt = f"""CONTEXTO DEL USUARIO:
 {prompt_context}
-
+{conversacion}
 MENSAJE DEL USUARIO:
 "{user_message}"
 
@@ -179,6 +187,25 @@ _DEFAULT_SUGGESTIONS = [
 ]
 
 
+def _format_historial(historial: Optional[list[dict]]) -> str:
+    """
+    Formatea la conversación previa para el prompt. Excluye el mensaje actual
+    (que se manda aparte) y omite el saludo inicial del bot si fuera el único.
+    Devuelve "" si no hay historial relevante.
+    """
+    if not historial:
+        return ""
+    lineas = []
+    for m in historial:
+        rol = "Usuario" if m.get("rol") == "user" else "Asistente"
+        texto = (m.get("texto") or "").strip()
+        if texto:
+            lineas.append(f"  {rol}: {texto}")
+    if not lineas:
+        return ""
+    return "\nCONVERSACIÓN PREVIA (para mantener contexto):\n" + "\n".join(lineas) + "\n"
+
+
 def _build_prompt_context(db: Session, ctx: dict) -> str:
     """Compone un bloque de texto compacto con el contexto del usuario para Gemini."""
     lines = []
@@ -235,8 +262,8 @@ def _build_prompt_context(db: Session, ctx: dict) -> str:
     semana = ctx.get("semana") or {}
     if semana.get("menus_generados", 0) > 0:
         lines.append(
-            f"Semana: {semana.get('menus_consumidos', 0)}/{semana.get('menus_generados', 0)} "
-            f"menús consumidos, costo total ${semana.get('costo_total', 0):.0f} MXN"
+            f"Semana: {semana.get('comidas_consumidas', 0)}/{semana.get('comidas_totales', 0)} "
+            f"comidas consumidas, costo total ${semana.get('costo_total', 0):.0f} MXN"
         )
 
     # Catálogo resumido de alimentos: solo si la pregunta probablemente

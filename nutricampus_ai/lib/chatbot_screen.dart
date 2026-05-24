@@ -16,11 +16,12 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   List<String> _suggestions = [];
   bool _loadingSuggestions = true;
   bool _sending = false;
+  bool _loadingHistory = true;
 
   @override
   void initState() {
     super.initState();
-    _addWelcomeMessage();
+    _loadHistory();
     _loadSuggestions();
   }
 
@@ -32,6 +33,69 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           '¿En qué te puedo ayudar?',
       isUser: false,
     ));
+  }
+
+  /// Carga el historial guardado del usuario. Si no hay nada, muestra el saludo.
+  Future<void> _loadHistory() async {
+    final result = await ApiService.getChatHistory();
+    if (!mounted) return;
+    setState(() {
+      _loadingHistory = false;
+      _messages.clear();
+      final data = result['data'];
+      final lista = (data is Map) ? data['mensajes'] : null;
+      if (lista is List && lista.isNotEmpty) {
+        for (final m in lista) {
+          if (m is Map) {
+            _messages.add(_ChatMessage(
+              text: (m['texto'] ?? '').toString(),
+              isUser: m['rol'] == 'user',
+            ));
+          }
+        }
+      } else {
+        _addWelcomeMessage();
+      }
+    });
+    _scrollToBottom();
+  }
+
+  /// Borra la conversación tras confirmar con el usuario.
+  Future<void> _clearHistory() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Limpiar conversación'),
+        content: const Text(
+          '¿Seguro que quieres borrar toda la conversación? Esta acción no se puede deshacer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Borrar'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    final result = await ApiService.clearChatHistory();
+    if (!mounted) return;
+    if (result['success'] == true) {
+      setState(() {
+        _messages.clear();
+        _addWelcomeMessage();
+      });
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo limpiar la conversación')),
+      );
+    }
   }
 
   Future<void> _loadSuggestions() async {
@@ -165,6 +229,13 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_sweep_outlined, color: Color(0xFF6B7280)),
+            tooltip: 'Limpiar conversación',
+            onPressed: _messages.isEmpty ? null : _clearHistory,
+          ),
+        ],
       ),
       body: Column(
         children: [

@@ -77,6 +77,17 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   bool _isGenerating = false;
   String? _error;
 
+  // Comidas que están regenerándose en este momento (para mostrar spinner
+  // por comida y deshabilitar su botón). Claves: desayuno/almuerzo/cena/snacks.
+  final Set<String> _regeneratingMeals = {};
+
+  // Comidas en las que un toggle (consumida/favorita) está en vuelo. Se usa
+  // para mostrar spinner en el icono y bloquear toques mientras llega la
+  // respuesta. Cambios optimistas: el dict local se actualiza al instante y
+  // se revierte si el backend responde con error.
+  final Set<String> _togglingConsumed = {};
+  final Set<String> _togglingFavorite = {};
+
   @override
   void initState() {
     super.initState();
@@ -139,6 +150,123 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
       _showSnack('Menú regenerado exitosamente');
     } else {
       _showSnack(result['error'] as String? ?? 'Error al regenerar', isError: true);
+    }
+  }
+
+  /// Regenera UNA sola comida (desayuno/almuerzo/cena/snacks), conservando
+  /// las demás. Hace solo 1 llamada a Gemini → es rápido e interactivo.
+  Future<void> _regenerateMeal(String key) async {
+    if (_regeneratingMeals.contains(key)) return;
+    setState(() => _regeneratingMeals.add(key));
+
+    final result = await ApiService.regenerateMeal(key);
+    if (!mounted) return;
+    setState(() => _regeneratingMeals.remove(key));
+
+    if (result['success'] == true) {
+      setState(() => _menu = result['data'] as Map<String, dynamic>);
+      final label = (_mealMeta[key]?['label'] as String?) ?? 'Comida';
+      _showSnack('$label actualizado');
+    } else {
+      _showSnack(result['error'] as String? ?? 'Error al regenerar la comida',
+          isError: true);
+    }
+  }
+
+  /// True si alguna operación (refresh, toggle consumida o toggle favorita)
+  /// está en vuelo para esta comida. Lo usan los 3 botones del header para
+  /// deshabilitarse mutuamente y evitar pisar operaciones.
+  bool _isMealBusy(String key) =>
+      _regeneratingMeals.contains(key) ||
+      _togglingConsumed.contains(key) ||
+      _togglingFavorite.contains(key);
+
+  /// Marca/desmarca una comida como consumida. UX optimista: actualiza el
+  /// dict local al instante, llama al backend, y si falla revierte y avisa.
+  /// La respuesta del endpoint trae el menú completo actualizado (con el
+  /// flag global `consumido` ya recalculado).
+  Future<void> _toggleMealConsumed(String key) async {
+    if (_menu == null || _isMealBusy(key)) return;
+
+    final consumidas = Map<String, dynamic>.from(
+      (_menu!['comidas_consumidas'] as Map?) ?? const {},
+    );
+    final previo = consumidas[key] as bool? ?? false;
+    final nuevo  = !previo;
+
+    // Optimistic
+    setState(() {
+      _togglingConsumed.add(key);
+      consumidas[key] = nuevo;
+      _menu!['comidas_consumidas'] = consumidas;
+    });
+
+    final id = _menu!['id_menu'] as int;
+    final result = await ApiService.markMealConsumed(id, key, consumida: nuevo);
+    if (!mounted) return;
+
+    if (result['success'] == true && result['data'] is Map) {
+      setState(() {
+        _togglingConsumed.remove(key);
+        _menu = result['data'] as Map<String, dynamic>;
+      });
+    } else {
+      // Revertir
+      setState(() {
+        _togglingConsumed.remove(key);
+        final revert = Map<String, dynamic>.from(
+          (_menu!['comidas_consumidas'] as Map?) ?? const {},
+        );
+        revert[key] = previo;
+        _menu!['comidas_consumidas'] = revert;
+      });
+      _showSnack(result['error'] as String? ?? 'No se pudo actualizar',
+          isError: true);
+    }
+  }
+
+  /// Marca/desmarca una comida como favorita. UX optimista igual que arriba.
+  /// El backend guarda la combinación de alimentos para reaplicarla y dar
+  /// boost en futuras recomendaciones.
+  Future<void> _toggleMealFavorite(String key) async {
+    if (_menu == null || _isMealBusy(key)) return;
+
+    final favoritas = Map<String, dynamic>.from(
+      (_menu!['comidas_favoritas'] as Map?) ?? const {},
+    );
+    final previo = favoritas[key] as bool? ?? false;
+    final nuevo  = !previo;
+
+    setState(() {
+      _togglingFavorite.add(key);
+      favoritas[key] = nuevo;
+      _menu!['comidas_favoritas'] = favoritas;
+    });
+
+    final id = _menu!['id_menu'] as int;
+    final result = await ApiService.markMealFavorite(id, key, favorita: nuevo);
+    if (!mounted) return;
+
+    if (result['success'] == true && result['data'] is Map) {
+      setState(() {
+        _togglingFavorite.remove(key);
+        _menu = result['data'] as Map<String, dynamic>;
+      });
+      final label = (_mealMeta[key]?['label'] as String?) ?? 'Comida';
+      _showSnack(
+        nuevo ? '$label agregado a favoritos ♥' : '$label quitado de favoritos',
+      );
+    } else {
+      setState(() {
+        _togglingFavorite.remove(key);
+        final revert = Map<String, dynamic>.from(
+          (_menu!['comidas_favoritas'] as Map?) ?? const {},
+        );
+        revert[key] = previo;
+        _menu!['comidas_favoritas'] = revert;
+      });
+      _showSnack(result['error'] as String? ?? 'No se pudo actualizar',
+          isError: true);
     }
   }
 
@@ -566,6 +694,8 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                 Expanded(
                   child: Text(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _darkText)),
                 ),
+                _buildMealActions(key, color),
+                const SizedBox(width: 4),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
@@ -598,21 +728,140 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
             final isLast = entry.key == items.length - 1;
             return _FoodItemTile(food: entry.value, isLast: isLast, accentColor: color);
           }),
+          // Razonamiento de la IA (por qué eligió esta comida), si existe
+          _buildReasoning(key, color),
         ],
       ),
+    );
+  }
+
+  /// Muestra el "por qué" que dio Gemini para esta comida, si lo hay.
+  Widget _buildReasoning(String key, Color color) {
+    final razones = (_menu?['razonamiento_comidas'] as Map?)?.cast<String, dynamic>() ?? {};
+    final texto = (razones[key] as String?)?.trim();
+    if (texto == null || texto.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.auto_awesome, size: 14, color: color.withOpacity(0.8)),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              texto,
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.35,
+                fontStyle: FontStyle.italic,
+                color: Colors.grey[600],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Acciones por comida (consumida, favorita, refresh) ───────
+
+  /// Fila compacta de 3 íconos en el header de cada comida: ☑ ♥ ↻.
+  /// El estado activo (verde ☑ / rojo ♥) se lee de `comidas_consumidas` y
+  /// `comidas_favoritas` que el backend ya expone en el menú.
+  Widget _buildMealActions(String key, Color refreshColor) {
+    final consumida = ((_menu?['comidas_consumidas'] as Map?)?[key] as bool?) ?? false;
+    final favorita  = ((_menu?['comidas_favoritas']  as Map?)?[key] as bool?) ?? false;
+    final mealBusy  = _isMealBusy(key);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildMealActionButton(
+          icon:        Icons.check_circle_outline_rounded,
+          activeIcon:  Icons.check_circle_rounded,
+          isActive:    consumida,
+          isBusy:      _togglingConsumed.contains(key),
+          disabled:    mealBusy || _isGenerating,
+          activeColor: const Color(0xFF2E7D32),
+          tooltip:     consumida ? 'Marcar como no consumida' : 'Marcar como consumida',
+          onPressed:   () => _toggleMealConsumed(key),
+        ),
+        _buildMealActionButton(
+          icon:        Icons.favorite_border_rounded,
+          activeIcon:  Icons.favorite_rounded,
+          isActive:    favorita,
+          isBusy:      _togglingFavorite.contains(key),
+          disabled:    mealBusy || _isGenerating,
+          activeColor: const Color(0xFFE53935),
+          tooltip:     favorita ? 'Quitar de favoritas' : 'Marcar como favorita',
+          onPressed:   () => _toggleMealFavorite(key),
+        ),
+        _buildMealActionButton(
+          icon:          Icons.refresh_rounded,
+          activeIcon:    Icons.refresh_rounded,
+          isActive:      false,
+          isBusy:        _regeneratingMeals.contains(key),
+          disabled:      mealBusy || _isGenerating,
+          activeColor:   refreshColor,
+          inactiveColor: refreshColor,   // el refresh siempre va con el color de la comida
+          tooltip:       'Refrescar solo esta comida',
+          onPressed:     () => _regenerateMeal(key),
+        ),
+      ],
+    );
+  }
+
+  /// Icon button compacto reutilizable para las acciones del header de
+  /// comida. Soporta estado activo/inactivo, busy (spinner) y disabled.
+  Widget _buildMealActionButton({
+    required IconData icon,
+    required IconData activeIcon,
+    required bool isActive,
+    required bool isBusy,
+    required bool disabled,
+    required Color activeColor,
+    Color? inactiveColor,
+    required String tooltip,
+    required VoidCallback onPressed,
+  }) {
+    final shownIcon  = isActive ? activeIcon : icon;
+    final shownColor = isActive ? activeColor : (inactiveColor ?? Colors.grey[400]!);
+
+    return IconButton(
+      onPressed: (disabled || isBusy) ? null : onPressed,
+      tooltip: tooltip,
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+      icon: isBusy
+          ? SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2, color: activeColor),
+            )
+          : Icon(shownIcon, size: 20, color: shownColor),
     );
   }
 
   // ── Botones de acción ──────────────────────────────────────────
 
   Widget _buildActions(bool consumido) {
+    // Si hay una comida refrescándose o un toggle por comida en vuelo, también
+    // bloqueamos las acciones globales para evitar operaciones encimadas sobre
+    // el mismo menú.
+    final busy = _isGenerating ||
+        _regeneratingMeals.isNotEmpty ||
+        _togglingConsumed.isNotEmpty ||
+        _togglingFavorite.isNotEmpty;
     return Column(
       children: [
         SizedBox(
           width: double.infinity,
           height: 52,
           child: ElevatedButton.icon(
-            onPressed: _isGenerating ? null : _toggleConsumed,
+            onPressed: busy ? null : _toggleConsumed,
             style: ElevatedButton.styleFrom(
               backgroundColor: consumido ? Colors.green[700] : _primaryGreen,
               foregroundColor: Colors.white,
@@ -628,7 +877,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
         ),
         const SizedBox(height: 10),
         TextButton.icon(
-          onPressed: _isGenerating ? null : _regenerate,
+          onPressed: busy ? null : _regenerate,
           icon: const Icon(Icons.refresh_rounded, size: 18),
           label: const Text('Regenerar menú'),
           style: TextButton.styleFrom(foregroundColor: Colors.grey[600]),

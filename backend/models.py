@@ -23,6 +23,8 @@ class Usuario(Base):
     menus             = relationship("MenuDiario", back_populates="usuario")
     registros         = relationship("RegistroNutricion", back_populates="usuario")
     feedback          = relationship("MenuFeedback", back_populates="usuario")
+    chat_mensajes     = relationship("ChatMensaje", back_populates="usuario")
+    comidas_favoritas = relationship("ComidaFavorita", back_populates="usuario")
 
 
 class PerfilNutricional(Base):
@@ -156,7 +158,15 @@ class MenuDiario(Base):
 
     mensaje           = Column(Text, nullable=True)
     alertas           = Column(Text, nullable=True)         # JSON list of strings
+    # JSON dict {campo: "por qué la IA eligió esta comida"} p.ej.
+    # {"cena": "Alta en proteína para tu objetivo de subir masa."}
+    razonamiento_comidas = Column(Text, nullable=True)
     consumido         = Column(Boolean, default=False)
+    # JSON dict {campo: bool} de qué comidas se han consumido individualmente.
+    # p.ej. {"desayuno": true, "cena": true}. Permite restar macros por comida.
+    comidas_consumidas = Column(Text, nullable=True)
+    # JSON dict {campo: bool} de qué comidas marcó el usuario como favoritas.
+    comidas_favoritas  = Column(Text, nullable=True)
     fecha_generacion  = Column(DateTime(timezone=True), server_default=func.now())
 
     # Presupuesto
@@ -212,3 +222,53 @@ class MenuFeedback(Base):
 
     usuario  = relationship("Usuario", back_populates="feedback")
     alimento = relationship("Alimento")
+
+
+class ChatMensaje(Base):
+    """
+    Tabla 'chat_mensajes' — historial del asistente NutriCampus por usuario.
+
+    Cada fila es un mensaje (del usuario o del bot) de la ÚNICA conversación
+    continua que tiene cada usuario. Se filtra SIEMPRE por id_usuario para que
+    nunca se mezclen conversaciones entre usuarios.
+
+    Se usa para:
+    - Recargar el historial al abrir la pantalla del chat.
+    - Darle memoria a Gemini (los últimos N mensajes como contexto).
+    """
+    __tablename__ = "chat_mensajes"
+
+    id_mensaje = Column(Integer, primary_key=True, index=True)
+    id_usuario = Column(Integer, ForeignKey("usuarios.id_usuario"), nullable=False, index=True)
+    rol        = Column(String(10), nullable=False)   # 'user' | 'bot'
+    texto      = Column(Text, nullable=False)
+    intent     = Column(String(50), nullable=True)    # intent detectado (solo en 'bot')
+    fecha      = Column(DateTime(timezone=True), server_default=func.now())
+
+    usuario = relationship("Usuario", back_populates="chat_mensajes")
+
+
+class ComidaFavorita(Base):
+    """
+    Tabla 'comidas_favoritas' — comidas (desayuno/almuerzo/cena/snack) que el
+    usuario marcó como favoritas, con la combinación exacta de alimentos.
+
+    Se usa para:
+    - Listar las comidas favoritas del usuario (sección aparte).
+    - Dar prioridad (boost) al regenerar esa comida: si te gustó tu desayuno,
+      al refrescar tenderá a reproponerlo.
+
+    Filtrada SIEMPRE por id_usuario.
+    """
+    __tablename__ = "comidas_favoritas"
+
+    id_favorita = Column(Integer, primary_key=True, index=True)
+    id_usuario  = Column(Integer, ForeignKey("usuarios.id_usuario"), nullable=False, index=True)
+    tipo        = Column(String(15), nullable=False)   # 'desayuno'|'almuerzo'|'cena'|'snacks'
+    # JSON list de IDs de alimentos que componen la comida favorita
+    ids_alimentos = Column(Text, nullable=False)
+    # JSON con un snapshot (nombres + macros) para mostrar sin recomputar
+    snapshot    = Column(Text, nullable=True)
+    fecha       = Column(DateTime(timezone=True), server_default=func.now())
+
+    usuario = relationship("Usuario", back_populates="comidas_favoritas")

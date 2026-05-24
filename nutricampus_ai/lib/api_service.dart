@@ -382,6 +382,22 @@ class ApiService {
         successCodes: {200, 201},
       );
 
+  /// Regenera UNA sola comida del menú del día, conservando las demás.
+  /// [comida] debe ser uno de: 'desayuno', 'almuerzo', 'cena', 'snacks'.
+  static Future<Map<String, dynamic>> regenerateMeal(
+    String comida, {
+    String? fecha,
+  }) =>
+      _request(
+        method: 'POST',
+        path: '/recommendations/regenerate-meal',
+        body: {
+          'comida': comida,
+          if (fecha != null) 'fecha': fecha,
+        },
+        successCodes: {200, 201},
+      );
+
   // ── Gestión de menús ──────────────────────────────────────────
 
   /// Historial de menús de los últimos [dias] días.
@@ -402,6 +418,57 @@ class ApiService {
   static Future<Map<String, dynamic>> deleteMenu(int idMenu) => _request(
         method: 'DELETE',
         path: '/menus/$idMenu',
+        successCodes: {204},
+      );
+
+  // ── Comidas individuales (consumida / favorita por comida) ────
+
+  /// Marca/desmarca UNA comida del menú (desayuno/almuerzo/cena/snacks)
+  /// como consumida. Devuelve el menú actualizado: el backend recalcula
+  /// el flag global `consumido` y sincroniza el RegistroNutricion con los
+  /// macros realmente consumidos.
+  static Future<Map<String, dynamic>> markMealConsumed(
+    int idMenu,
+    String comida, {
+    bool consumida = true,
+  }) =>
+      _request(
+        method: 'POST',
+        path: '/menus/$idMenu/meal-consumed',
+        body: {'comida': comida, 'consumida': consumida},
+      );
+
+  /// Marca/desmarca UNA comida del menú como favorita. Al marcarla, el
+  /// backend guarda la combinación de alimentos en `ComidaFavorita` (para
+  /// darle boost en futuras recomendaciones). Al desmarcarla, elimina la
+  /// favorita equivalente. Devuelve el menú actualizado.
+  static Future<Map<String, dynamic>> markMealFavorite(
+    int idMenu,
+    String comida, {
+    bool favorita = true,
+  }) =>
+      _request(
+        method: 'POST',
+        path: '/menus/$idMenu/meal-favorite',
+        body: {'comida': comida, 'favorita': favorita},
+      );
+
+  /// Progreso de consumo del día: macros consumidos vs total del menú y
+  /// cuánto falta. La barra de progreso del cliente lo calcula localmente
+  /// para evitar round-trips, pero este endpoint queda como verificación.
+  static Future<Map<String, dynamic>> getMenuProgress(int idMenu) =>
+      _request(method: 'GET', path: '/menus/$idMenu/progress');
+
+  // ── Comidas favoritas (listado y eliminación) ─────────────────
+
+  /// Lista las comidas favoritas del usuario.
+  static Future<Map<String, dynamic>> getFavorites() =>
+      _request(method: 'GET', path: '/favorites');
+
+  /// Elimina una comida favorita por id.
+  static Future<Map<String, dynamic>> deleteFavorite(int idFavorita) => _request(
+        method: 'DELETE',
+        path: '/favorites/$idFavorita',
         successCodes: {204},
       );
 
@@ -456,4 +523,12 @@ class ApiService {
   /// Obtiene el contexto del usuario tal como lo ve el chatbot.
   static Future<Map<String, dynamic>> getChatContext() =>
       _request(method: 'GET', path: '/chatbot/context');
+
+  /// Obtiene el historial de la conversación del usuario autenticado.
+  static Future<Map<String, dynamic>> getChatHistory() =>
+      _request(method: 'GET', path: '/chatbot/history');
+
+  /// Borra el historial de la conversación del usuario autenticado.
+  static Future<Map<String, dynamic>> clearChatHistory() =>
+      _request(method: 'DELETE', path: '/chatbot/history');
 }

@@ -618,13 +618,13 @@ def _handle_calorias_consulta(message: str, ctx: dict, intent: str) -> dict:
     else:
         reply += "**Hoy:** No hay menú generado todavía.\n\n"
 
-    cal_semana = semana.get("calorias_totales") or 0
-    menus_cons = semana.get("menus_consumidos") or 0
+    cal_semana    = semana.get("calorias_totales")   or 0
+    comidas_cons  = semana.get("comidas_consumidas") or 0
     if cal_semana > 0:
-        promedio = cal_semana // max(menus_cons, 1)
+        promedio = cal_semana // max(comidas_cons, 1)
         reply += (
-            f"**Esta semana:** {cal_semana} kcal en {menus_cons} días registrados "
-            f"(promedio: {promedio} kcal/día)"
+            f"**Esta semana:** {cal_semana} kcal en {comidas_cons} comidas consumidas "
+            f"(promedio: {promedio} kcal/comida)"
         )
     else:
         reply += "**Esta semana:** Sin datos de consumo registrados aún."
@@ -682,10 +682,11 @@ def _handle_historial_comida(message: str, ctx: dict, intent: str) -> dict:
         return _sin_perfil(intent)
 
     semana = ctx.get("semana") or {}
-    generados = semana.get("menus_generados") or 0
-    consumidos = semana.get("menus_consumidos") or 0
-    cal_semana = semana.get("calorias_totales") or 0
-    costo_semana = semana.get("costo_total") or 0
+    generados        = semana.get("menus_generados")    or 0
+    comidas_cons     = semana.get("comidas_consumidas") or 0
+    comidas_totales  = semana.get("comidas_totales")    or 0
+    cal_semana       = semana.get("calorias_totales")   or 0
+    costo_semana     = semana.get("costo_total")        or 0
 
     if generados == 0:
         reply = (
@@ -693,24 +694,24 @@ def _handle_historial_comida(message: str, ctx: dict, intent: str) -> dict:
             "Genera tu primer menú del día desde la pantalla de **Recomendación**."
         )
     else:
-        promedio_cal = cal_semana // max(consumidos, 1) if cal_semana > 0 else 0
         reply = (
             f"📋 **Tu historial de esta semana:**\n\n"
             f"• Menús generados: **{generados}**\n"
-            f"• Menús consumidos: **{consumidos}**\n"
+            f"• Comidas consumidas: **{comidas_cons}** de **{comidas_totales}**\n"
         )
         if cal_semana > 0:
-            reply += f"• Calorías totales registradas: **{cal_semana} kcal**\n"
-            if consumidos > 0:
-                reply += f"• Promedio por día: **{promedio_cal} kcal/día**\n"
+            reply += f"• Calorías totales consumidas: **{cal_semana} kcal**\n"
+            if comidas_cons > 0:
+                promedio_cal = cal_semana // max(comidas_cons, 1)
+                reply += f"• Promedio por comida: **{promedio_cal} kcal**\n"
         if costo_semana > 0:
             reply += f"• Costo total estimado: **${costo_semana:.0f} MXN**\n"
 
-        if consumidos < generados:
-            no_marcados = generados - consumidos
+        if comidas_cons < comidas_totales:
+            faltantes = comidas_totales - comidas_cons
             reply += (
-                f"\n💡 Tienes {no_marcados} menú(s) generados pero no marcados como consumidos. "
-                "Márcalos en la pantalla de **Recomendación** para llevar mejor control."
+                f"\n💡 Te faltan {faltantes} comida(s) por marcar como consumidas. "
+                "Hazlo en la pantalla de **Recomendación** para llevar mejor control."
             )
 
     return {

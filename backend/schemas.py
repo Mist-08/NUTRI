@@ -204,6 +204,9 @@ class MenuDiarioResponse(BaseModel):
     contexto:           Optional[ContextoAcademicoSchema] = None
     mensaje:              Optional[str]   = None
     alertas:              List[str]       = []
+    razonamiento_comidas: dict            = {}
+    comidas_consumidas:   dict            = {}
+    comidas_favoritas:    dict            = {}
     consumido:            bool
     fecha_generacion:     str
     costo_total_estimado: Optional[float] = None
@@ -220,6 +223,28 @@ class MenuDiarioResponse(BaseModel):
         if isinstance(v, str):
             return json.loads(v) if v else []
         return v or []
+
+    @field_validator('razonamiento_comidas', mode='before')
+    @classmethod
+    def parse_razonamiento(cls, v):
+        import json
+        if isinstance(v, str):
+            try:
+                return json.loads(v) if v else {}
+            except (json.JSONDecodeError, TypeError):
+                return {}
+        return v or {}
+
+    @field_validator('comidas_consumidas', 'comidas_favoritas', mode='before')
+    @classmethod
+    def parse_comida_flags(cls, v):
+        import json
+        if isinstance(v, str):
+            try:
+                return json.loads(v) if v else {}
+            except (json.JSONDecodeError, TypeError):
+                return {}
+        return v or {}
 
     @field_validator('alertas', mode='before')
     @classmethod
@@ -257,8 +282,50 @@ class GenerarMenuRequest(BaseModel):
     fecha: Optional[str] = None   # formato "YYYY-MM-DD"; None = hoy
 
 
+class RegenerarComidaRequest(BaseModel):
+    """Regenera una sola comida del menú del día (refresh granular)."""
+    comida: Literal["desayuno", "almuerzo", "cena", "snacks"]
+    fecha:  Optional[str] = None   # formato "YYYY-MM-DD"; None = hoy
+
+
 class MarcarConsumedoRequest(BaseModel):
     consumido: bool = True
+
+
+class ComidaConsumidaRequest(BaseModel):
+    """Marca/desmarca UNA comida como consumida."""
+    comida:    Literal["desayuno", "almuerzo", "cena", "snacks"]
+    consumida: bool = True
+
+
+class ComidaFavoritaRequest(BaseModel):
+    """Marca/desmarca UNA comida como favorita."""
+    comida:   Literal["desayuno", "almuerzo", "cena", "snacks"]
+    favorita: bool = True
+
+
+class MacrosSchema(BaseModel):
+    calorias:      int = 0
+    proteinas:     float = 0.0
+    grasas:        float = 0.0
+    carbohidratos: float = 0.0
+
+
+class ProgresoConsumoResponse(BaseModel):
+    """Progreso de consumo del día: lo comido vs el total del menú."""
+    objetivo_calorias:   int
+    consumido:           MacrosSchema
+    total_menu:          MacrosSchema
+    restante:            MacrosSchema
+    comidas_consumidas:  dict = {}
+
+
+class ComidaFavoritaItem(BaseModel):
+    """Una comida favorita del usuario."""
+    id_favorita: int
+    tipo:        str
+    alimentos:   List[dict] = []
+    fecha:       Optional[str] = None
 
 
 class HistorialMenuResponse(BaseModel):
@@ -283,12 +350,17 @@ class HistorialMenuResponse(BaseModel):
 
 
 class EstadisticasSemana(BaseModel):
-    """Estadísticas de la semana actual"""
-    menus_generados:    int
-    menus_consumidos:   int
-    tasa_cumplimiento:  float        # 0.0 – 1.0
-    promedio_calorias:  int
-    historial:          List[HistorialMenuResponse]
+    """Estadísticas de la semana actual (últimos 7 días).
+
+    A partir de la migración a consumo por comida, el cumplimiento se
+    mide contando comidas individuales en vez de menús completos.
+    """
+    menus_generados:     int
+    comidas_consumidas:  int          # comidas individuales marcadas como consumidas
+    comidas_totales:     int          # comidas con items (denominador)
+    tasa_cumplimiento:   float        # 0.0 – 1.0
+    promedio_calorias:   int
+    historial:           List[HistorialMenuResponse]
 
 
 class RegistroNutricionCreate(BaseModel):
@@ -355,6 +427,19 @@ class ChatbotResponse(BaseModel):
     suggestions:  List[str] = []
     related_menu: Optional[dict] = None
     context_card: Optional[dict] = None
+
+
+class ChatMensajeItem(BaseModel):
+    """Un mensaje del historial del chat"""
+    rol:    str               # 'user' | 'bot'
+    texto:  str
+    intent: Optional[str] = None
+    fecha:  Optional[str] = None
+
+
+class ChatHistoryResponse(BaseModel):
+    """Historial completo de la conversación del usuario"""
+    mensajes: List[ChatMensajeItem] = []
 
 
 # ── Feedback de menú (NUEVO en Fase 2) ────────────────────────────

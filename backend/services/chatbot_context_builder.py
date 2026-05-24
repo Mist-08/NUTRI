@@ -12,6 +12,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 import models
+from services import meal_service
 
 
 def build_context(db: Session, id_usuario: int) -> dict:
@@ -101,19 +102,28 @@ def build_context(db: Session, id_usuario: int) -> dict:
     else:
         ctx["menu_hoy"] = None
 
-    # Estadísticas de la semana
-    menus_consumidos = [m for m in historial if m.consumido]
-    calorias_semana = sum(m.calorias_total or 0 for m in menus_consumidos)
+    # Estadísticas de la semana (consumo por comida, no por menú completo)
+    comidas_consumidas = 0
+    comidas_totales    = 0
+    calorias_semana    = 0
+    for m in historial:
+        c, t = meal_service.contar_comidas(m)
+        comidas_consumidas += c
+        comidas_totales    += t
+        progreso = meal_service.calcular_progreso(m)
+        calorias_semana += progreso["consumido"]["calorias"]
+
     costo_semana = sum(
         m.costo_total_estimado or 0 for m in historial
         if m.costo_total_estimado is not None
     )
 
     ctx["semana"] = {
-        "menus_generados": len(historial),
-        "menus_consumidos": len(menus_consumidos),
-        "calorias_totales": calorias_semana,
-        "costo_total": round(costo_semana, 2),
+        "menus_generados":    len(historial),
+        "comidas_consumidas": comidas_consumidas,
+        "comidas_totales":    comidas_totales,
+        "calorias_totales":   calorias_semana,
+        "costo_total":        round(costo_semana, 2),
     }
 
     # Próximos eventos académicos
