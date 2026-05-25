@@ -8,7 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 enum ApiErrorType { timeout, network, unauthorized, notFound, server, unknown }
 
 class ApiService {
-  static const String _baseUrl = 'http://localhost:8000';
+  static const String _baseUrl = 'https://nutri-1-5yjj.onrender.com';
   static const Duration _timeout = Duration(seconds: 15);
   static String? _cachedToken;
 
